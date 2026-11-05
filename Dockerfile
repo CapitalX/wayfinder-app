@@ -2,7 +2,7 @@
 # generated app code runs as the same user as Wayfinder and can read /config. See SECURITY.md, Known limits.
 # Claude: pass ANTHROPIC_API_KEY. Data and secrets live in volumes.
 # The full Node image already has git (Build mode versions each app) and CA certificates, so no package installs.
-FROM node:22-bookworm
+FROM node:25-bookworm
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
