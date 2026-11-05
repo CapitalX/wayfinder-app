@@ -1,5 +1,5 @@
 # Installs Wayfinder on Windows, inside WSL (native Windows isn't supported):
-#   irm https://github.com/__PUBLIC_REPO__/releases/latest/download/install.ps1 | iex
+#   irm https://github.com/CapitalX/wayfinder-app/releases/latest/download/install.ps1 | iex
 # It runs install.sh in your default WSL distribution, starts Wayfinder there and opens it in your browser
 # (WSL forwards localhost). Safe to run again.
 # A particular version: save it and run  .\install.ps1 -Version 1.21.0  (or set WAYFINDER_VERSION before irm | iex).
@@ -12,7 +12,7 @@ param([string]$Version = $env:WAYFINDER_VERSION)
 param([string]$Version)
 $ErrorActionPreference = 'Stop'
 if ($Version -and $Version -notmatch '^\d+\.\d+\.\d+$') { Write-Host "-Version takes a release number like 1.21.0, not '$Version'."; return }
-$Repo = if ($env:WAYFINDER_REPO) { $env:WAYFINDER_REPO } else { '__PUBLIC_REPO__' }
+$Repo = if ($env:WAYFINDER_REPO) { $env:WAYFINDER_REPO } else { 'CapitalX/wayfinder-app' }
 $Base = if ($env:WAYFINDER_DOWNLOAD_BASE) { $env:WAYFINDER_DOWNLOAD_BASE } else { "https://github.com/$Repo/releases" }
 # Run inside WSL with the release address as $1 (and a version as $2, if one was asked for): download install.sh and SHA256SUMS, check the script against its
 # published checksum, and only then run it. It goes to sh on stdin (Windows PowerShell mangles quotes in arguments);

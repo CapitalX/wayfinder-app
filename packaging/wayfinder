@@ -3,7 +3,7 @@
 # Run `wayfinder help` for the commands. Works with the bash 3.2 that ships with macOS.
 set -uo pipefail
 
-REPO="${WAYFINDER_REPO:-__PUBLIC_REPO__}"   # owner/name of the public repo; filled in when a release is packed
+REPO="${WAYFINDER_REPO:-CapitalX/wayfinder-app}"   # owner/name of the public repo; filled in when a release is packed
 BASE="${WAYFINDER_DOWNLOAD_BASE:-https://github.com/$REPO/releases}"
 
 # The app folder is the one this script lives in (packaging/..), wherever the command link points from.

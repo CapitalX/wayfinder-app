@@ -1,6 +1,6 @@
 {
   "name": "wayfinder",
-  "version": "1.40.0",
+  "version": "1.0.0",
   "description": "Wayfinder: a self-hosted ServiceNow workspace with an AI companion (Pip), connected to your own instance.",
   "main": "index.js",
   "scripts": {

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Installs Wayfinder for this user (no sudo, except to install Node if you ask for that):
-#   curl -fsSL https://github.com/__PUBLIC_REPO__/releases/latest/download/install.sh | sh
+#   curl -fsSL https://github.com/CapitalX/wayfinder-app/releases/latest/download/install.sh | sh
 # Options (after `sh -s --`): --yes (no questions, take the defaults), --version X.Y.Z, --no-service, --auto-update.
 # Safe to run again: an installed version is reused, and your data and settings are never touched.
 set -eu
@@ -9,7 +9,7 @@ set -eu
 # a partial script, because main is only defined once the whole file has arrived.
 main() {
 
-REPO="${WAYFINDER_REPO:-__PUBLIC_REPO__}"
+REPO="${WAYFINDER_REPO:-CapitalX/wayfinder-app}"
 BASE="${WAYFINDER_DOWNLOAD_BASE:-https://github.com/$REPO/releases}"
 ROOT="${WAYFINDER_INSTALL_DIR:-$HOME/.local/share/wayfinder}"
 BIN="${WAYFINDER_BIN_DIR:-$HOME/.local/bin}"

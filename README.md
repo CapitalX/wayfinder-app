@@ -17,14 +17,11 @@ what your instance already offers and asks before making changes, so you can rev
 
 ## Quick start
 
-Replace `__PUBLIC_REPO__` with the public `owner/repository` when it is named.
-The install scripts need a published release; **use source or Docker until the first release is available**.
-
 ### macOS / Linux installer
 
 1. Install:
    ```sh
-   curl -fsSL https://github.com/__PUBLIC_REPO__/releases/latest/download/install.sh | sh
+   curl -fsSL https://github.com/CapitalX/wayfinder-app/releases/latest/download/install.sh | sh
    export PATH="$HOME/.local/bin:$PATH"
    ```
 2. Start and print your login token:
@@ -39,7 +36,7 @@ The install scripts need a published release; **use source or Docker until the f
 1. Install WSL if needed (`wsl --install` in an administrator PowerShell, restart, then open Ubuntu once).
 2. In PowerShell, install and start Wayfinder:
    ```powershell
-   irm https://github.com/__PUBLIC_REPO__/releases/latest/download/install.ps1 | iex
+   irm https://github.com/CapitalX/wayfinder-app/releases/latest/download/install.ps1 | iex
    ```
 3. The installer prints your token and opens the browser. Paste the token and follow [first-run setup](#first-run-setup).
 
@@ -47,7 +44,7 @@ The install scripts need a published release; **use source or Docker until the f
 
 1. Clone:
    ```sh
-   git clone https://github.com/__PUBLIC_REPO__ wayfinder
+   git clone https://github.com/CapitalX/wayfinder-app wayfinder
    cd wayfinder
    ```
 2. Build, start and print your login token:
@@ -61,7 +58,7 @@ The install scripts need a published release; **use source or Docker until the f
 
 1. Clone:
    ```sh
-   git clone https://github.com/__PUBLIC_REPO__ wayfinder
+   git clone https://github.com/CapitalX/wayfinder-app wayfinder
    cd wayfinder
    ```
 2. Install, build and test:

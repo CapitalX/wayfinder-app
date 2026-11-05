@@ -262,7 +262,7 @@ describe('release packing', () => {
     for (const f of ['install.sh', 'install.ps1']) {
       const body = readFileSync(join(out, f), 'utf8');
       expect(body).toContain('example-owner/wayfinder');
-      expect(body).not.toContain('__PUBLIC_REPO__');
+      expect(body).not.toContain('CapitalX/wayfinder-app');
       expect(sums).toContain(`${sha(body)}  ${f}`);
     }
     const formula = readFileSync(join(out, 'homebrew', 'wayfinder.rb'), 'utf8');

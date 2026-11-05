@@ -146,7 +146,7 @@ in the app's banner until the next good one.
 
 ## Publishing a release (maintainers)
 Releases are built in the public repo by `.github/workflows/release.yml`; it doesn't publish from a private copy.
-The public project is `https://github.com/__PUBLIC_REPO__`; replace that placeholder with its final owner/repository.
+The public project is `https://github.com/CapitalX/wayfinder-app`; replace that placeholder with its final owner/repository.
 CI and releases use GitHub's `ubuntu-latest` Linux runner only, including fork PRs.
 Hosted Linux includes Chrome on PATH; CI falls back to installing the headless shell if needed. UI failures block CI.
 

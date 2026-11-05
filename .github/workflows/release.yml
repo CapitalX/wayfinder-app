@@ -1,7 +1,7 @@
 name: release
 # A vX.Y.Z tag on main publishes the app, installers and checksums, then optionally updates the tap.
 # Release commits on main are also supported. Only public repositories publish; PRs never release.
-# Public project: https://github.com/__PUBLIC_REPO__
+# Public project: https://github.com/CapitalX/wayfinder-app
 # The tap update needs the Actions secret TAP_TOKEN: a fine-grained token limited to the tap repo, Contents: write
 # (see docs/RUNBOOK.md, "Publishing a release"). Without it, the release still publishes and the formula is skipped.
 on:

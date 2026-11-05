@@ -42,7 +42,7 @@ SQLite through `node:sqlite`. The brain is the Claude Agent SDK (`query()`), run
 ## Packaging (`packaging/`)
 `install.sh` (POSIX sh, arrives through `curl | sh`), `install.ps1` (Windows → WSL), `wayfinder` (the command; bash
 3.2-safe for macOS), `pack.sh` (release files + SHA256SUMS + formula), `homebrew/wayfinder.rb.tmpl`, and
-`test/linux-install.sh`. `__PUBLIC_REPO__` is filled in by pack.sh from the repo that builds the release.
+`test/linux-install.sh`. `CapitalX/wayfinder-app` is filled in by pack.sh from the repo that builds the release.
 `.github/workflows/release.yml` publishes when a `release X.Y.Z` commit lands on main (or on a `vX.Y.Z` tag), in the public repo only. Installs run
 `npm ci --omit=dev --ignore-scripts`, so anything the server imports at run time must be a dependency, not a devDependency.
 

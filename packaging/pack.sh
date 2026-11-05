@@ -24,7 +24,7 @@ else
   find "${paths[@]}" -type f -print0
 fi | tar -c --null -T - -f - | tar -x -C "$app"
 mkdir -p "$app/dist" && cp -R dist/web "$app/dist/web"
-stamp() { sed -e "s|__PUBLIC_REPO__|$repo|g" "$@"; }
+stamp() { sed -e "s|CapitalX/wayfinder-app|$repo|g" "$@"; }
 stamp packaging/wayfinder >"$app/packaging/wayfinder"; chmod 755 "$app/packaging/wayfinder"
 
 # Fixed owner and times, so the same commit packs to the same bytes as far as tar and gzip allow.
