@@ -1,0 +1,73 @@
+name: release
+# A vX.Y.Z tag on main publishes the app, installers and checksums, then optionally updates the tap.
+# Release commits on main are also supported. Only public repositories publish; PRs never release.
+# Public project: https://github.com/__PUBLIC_REPO__
+# The tap update needs the Actions secret TAP_TOKEN: a fine-grained token limited to the tap repo, Contents: write
+# (see docs/RUNBOOK.md, "Publishing a release"). Without it, the release still publishes and the formula is skipped.
+on:
+  push:
+    branches: [main]
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+permissions:
+  contents: write # create the release and upload its files
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  release:
+    # Only the release step's merge commit or a tag; every other push to main does nothing here.
+    if: ${{ !github.event.repository.private && (github.ref_type == 'tag' || startsWith(github.event.head_commit.message, 'release ')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { fetch-depth: 0, persist-credentials: false }
+      - name: the tag is on main (only reviewed, merged code is released)
+        run: |
+          git fetch -q origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "::error::$GITHUB_REF_NAME points at a commit that isn't on main; tag a merged commit"; exit 1; }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: 22 } # no npm cache: a release is always a clean install from the lockfile
+      - name: version matches package.json and the changelog
+        run: |
+          v=$(node -p "require('./package.json').version")
+          # A tag must name that version; a release merge on main takes its tag from it.
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME != package.json $v"; exit 1; }
+          fi
+          echo "TAG=v$v" >> "$GITHUB_ENV"
+          node -e "if(require('./changelog.json')[0].version!=='$v'){console.error('changelog top entry is not $v');process.exit(1)}"
+      - run: npm ci --ignore-scripts
+      - run: npx tsc -p . --noEmit
+      - run: npm test
+      - run: npm run build
+      - name: pack
+        run: bash packaging/pack.sh "$GITHUB_REPOSITORY" out
+      - name: publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          v="${TAG#v}"
+          # Already published (the tag was pushed by hand after the release merge): nothing to do.
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && { echo "$TAG already released"; exit 0; }
+          node -e "const c=require('./changelog.json')[0];console.log([c.title,'',...c.items.map(i=>'- '+i)].join('\n'))" > notes.md
+          gh release create "$TAG" --target "$GITHUB_SHA" --repo "$GITHUB_REPOSITORY" --title "Wayfinder $v" --notes-file notes.md \
+            "out/wayfinder-$v.tgz" out/install.sh out/install.ps1 out/SHA256SUMS
+      - name: update the Homebrew formula
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: |
+          [ -n "$TAP_TOKEN" ] || { echo "::warning::TAP_TOKEN isn't set; the Homebrew formula was not updated"; exit 0; }
+          tap="${GITHUB_REPOSITORY_OWNER}/homebrew-tap"
+          # The token reaches git through a credential helper that reads it from the environment, so it's never in a
+          # URL, a command line or tap/.git/config.
+          auth='credential.helper=!f() { echo username=x-access-token; echo "password=$TAP_TOKEN"; }; f'
+          git -c credential.helper= -c "$auth" clone -q "https://github.com/${tap}.git" tap
+          mkdir -p tap/Formula && cp out/homebrew/wayfinder.rb tap/Formula/wayfinder.rb
+          cd tap
+          git add Formula/wayfinder.rb
+          git diff --cached --quiet && { echo "formula already up to date"; exit 0; }
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "wayfinder ${TAG#v}"
+          git -c credential.helper= -c "$auth" push -q origin HEAD

@@ -1,0 +1,403 @@
+[
+ {
+  "name": "A new field on incident, from global",
+  "facts": {
+   "tables": [
+    {
+     "name": "incident",
+     "scope": "global",
+     "scopeName": "Global"
+    }
+   ],
+   "newTables": false,
+   "addsToCurrentApp": false,
+   "current": {
+    "scope": "global",
+    "name": "Global"
+   }
+  },
+  "expect": {
+   "place": "global",
+   "rule": "global-table"
+  }
+ },
+ {
+  "name": "A new field on incident, from the Loans app",
+  "facts": {
+   "tables": [
+    {
+     "name": "incident",
+     "scope": "global",
+     "scopeName": "Global"
+    }
+   ],
+   "newTables": false,
+   "addsToCurrentApp": false,
+   "current": {
+    "scope": "x_acme_loan",
+    "name": "Loans"
+   }
+  },
+  "expect": {
+   "place": "current-app",
+   "rule": "app-adds-to-global-table"
+  }
+ },
+ {
+  "name": "A new request type with its own tables, from global",
+  "facts": {
+   "tables": [],
+   "newTables": true,
+   "addsToCurrentApp": false,
+   "current": {
+    "scope": "global",
+    "name": "Global"
+   }
+  },
+  "expect": {
+   "place": "new-app",
+   "rule": "new-data-model"
+  }
+ },
+ {
+  "name": "A new table that grows the Loans app",
+  "facts": {
+   "tables": [],
+   "newTables": true,
+   "addsToCurrentApp": true,
+   "current": {
+    "scope": "x_acme_loan",
+    "name": "Loans"
+   }
+  },
+  "expect": {
+   "place": "current-app",
+   "rule": "grow-current-app"
+  }
+ },
+ {
+  "name": "Unrelated new tables while in the Loans app",
+  "facts": {
+   "tables": [],
+   "newTables": true,
+   "addsToCurrentApp": false,
+   "current": {
+    "scope": "x_acme_loan",
+    "name": "Loans"
+   }
+  },
+  "expect": {
+   "place": "new-app",
+   "rule": "new-data-model"
+  }
+ },
+ {
+  "name": "Fix a business rule on a Loans table, from Loans",
+  "facts": {
+   "tables": [
+    {
+     "name": "x_acme_loan_request",
+     "scope": "x_acme_loan",
+     "scopeName": "Loans"
+    }
+   ],
+   "newTables": false,
+   "addsToCurrentApp": false,
+   "current": {
+    "scope": "x_acme_loan",
+    "name": "Loans"
+   }
+  },
+  "expect": {
+   "place": "current-app",
+   "rule": "extend-current-app"
+  }
+ },
+ {
+  "name": "Fix a Loans table while in global",
+  "facts": {
+   "tables": [
+    {
+     "name": "x_acme_loan_request",
+     "scope": "x_acme_loan",
+     "scopeName": "Loans"
+    }
+   ],
+   "newTables": false,
+   "addsToCurrentApp": false,
+   "current": {
+    "scope": "global",
+    "name": "Global"
+   }
+  },
+  "expect": {
+   "place": "owning-app",
+   "rule": "other-apps-table"
+  }
+ },
+ {
+  "name": "Change the Intake app's table while in Loans",
+  "facts": {
+   "tables": [
+    {
+     "name": "x_acme_intake_form",
+     "scope": "x_acme_intake",
+     "scopeName": "Intake"
+    }
+   ],
+   "newTables": false,
+   "addsToCurrentApp": false,
+   "current": {
+    "scope": "x_acme_loan",
+    "name": "Loans"
+   }
+  },
+  "expect": {
+   "place": "owning-app",
+   "rule": "other-apps-table"
+  }
+ },
+ {
+  "name": "Change an HR case table while in global",
+  "facts": {
+   "tables": [
+    {
+     "name": "sn_hr_core_case",
+     "scope": "sn_hr_core",
+     "scopeName": "Human Resources: Core"
+    }
+   ],
+   "newTables": false,
+   "addsToCurrentApp": false,
+   "current": {
+    "scope": "global",
+    "name": "Global"
+   }
+  },
+  "expect": {
+   "place": "owning-app",
+   "rule": "other-apps-table"
+  }
+ },
+ {
+  "name": "An integration with nothing on the instance yet, from global",
+  "facts": {
+   "tables": [],
+   "newTables": false,
+   "addsToCurrentApp": false,
+   "current": {
+    "scope": "global",
+    "name": "Global"
+   }
+  },
+  "expect": {
+   "place": "new-app",
+   "rule": "no-table-yet"
+  }
+ },
+ {
+  "name": "A system property for the Loans app",
+  "facts": {
+   "tables": [],
+   "newTables": false,
+   "addsToCurrentApp": false,
+   "current": {
+    "scope": "x_acme_loan",
+    "name": "Loans"
+   }
+  },
+  "expect": {
+   "place": "current-app",
+   "rule": "default"
+  }
+ },
+ {
+  "name": "An ACL change on sys_user, from global",
+  "facts": {
+   "tables": [
+    {
+     "name": "sys_user",
+     "scope": "global",
+     "scopeName": "Global"
+    }
+   ],
+   "newTables": false,
+   "addsToCurrentApp": false,
+   "current": {
+    "scope": "global",
+    "name": "Global"
+   }
+  },
+  "expect": {
+   "place": "global",
+   "rule": "global-table"
+  }
+ },
+ {
+  "name": "A rule on change_request that is part of the Loans app",
+  "facts": {
+   "tables": [
+    {
+     "name": "change_request",
+     "scope": "global",
+     "scopeName": "Global"
+    }
+   ],
+   "newTables": false,
+   "addsToCurrentApp": true,
+   "current": {
+    "scope": "x_acme_loan",
+    "name": "Loans"
+   }
+  },
+  "expect": {
+   "place": "current-app",
+   "rule": "grow-current-app"
+  }
+ },
+ {
+  "name": "A table that doesn't exist yet, from global",
+  "facts": {
+   "tables": [
+    {
+     "name": "u_new_thing",
+     "scope": null
+    }
+   ],
+   "newTables": true,
+   "addsToCurrentApp": false,
+   "current": {
+    "scope": "global",
+    "name": "Global"
+   }
+  },
+  "expect": {
+   "place": "new-app",
+   "rule": "new-data-model"
+  }
+ },
+ {
+  "name": "A field on incident when the current app is unknown",
+  "facts": {
+   "tables": [
+    {
+     "name": "incident",
+     "scope": "global",
+     "scopeName": "Global"
+    }
+   ],
+   "newTables": false,
+   "addsToCurrentApp": false,
+   "current": null
+  },
+  "expect": {
+   "place": "global",
+   "rule": "global-table"
+  }
+ },
+ {
+  "name": "Nothing known at all",
+  "facts": {
+   "tables": [],
+   "newTables": false,
+   "addsToCurrentApp": false,
+   "current": null
+  },
+  "expect": {
+   "place": "new-app",
+   "rule": "none"
+  }
+ },
+ {
+  "name": "incident and a Loans table, from Loans",
+  "facts": {
+   "tables": [
+    {
+     "name": "incident",
+     "scope": "global",
+     "scopeName": "Global"
+    },
+    {
+     "name": "x_acme_loan_request",
+     "scope": "x_acme_loan",
+     "scopeName": "Loans"
+    }
+   ],
+   "newTables": false,
+   "addsToCurrentApp": false,
+   "current": {
+    "scope": "x_acme_loan",
+    "name": "Loans"
+   }
+  },
+  "expect": {
+   "place": "current-app",
+   "rule": "extend-current-app"
+  }
+ },
+ {
+  "name": "incident and the Intake app's table, from Loans",
+  "facts": {
+   "tables": [
+    {
+     "name": "incident",
+     "scope": "global",
+     "scopeName": "Global"
+    },
+    {
+     "name": "x_acme_intake_form",
+     "scope": "x_acme_intake",
+     "scopeName": "Intake"
+    }
+   ],
+   "newTables": false,
+   "addsToCurrentApp": false,
+   "current": {
+    "scope": "x_acme_loan",
+    "name": "Loans"
+   }
+  },
+  "expect": {
+   "place": "owning-app",
+   "rule": "other-apps-table"
+  }
+ },
+ {
+  "name": "New tables extending task, from global",
+  "facts": {
+   "tables": [
+    {
+     "name": "task",
+     "scope": "global",
+     "scopeName": "Global"
+    }
+   ],
+   "newTables": true,
+   "addsToCurrentApp": false,
+   "current": {
+    "scope": "global",
+    "name": "Global"
+   }
+  },
+  "expect": {
+   "place": "new-app",
+   "rule": "new-data-model"
+  }
+ },
+ {
+  "name": "Said it's part of the current app while in global, nothing exists yet",
+  "facts": {
+   "tables": [],
+   "newTables": false,
+   "addsToCurrentApp": true,
+   "current": {
+    "scope": "global",
+    "name": "Global"
+   }
+  },
+  "expect": {
+   "place": "new-app",
+   "rule": "no-table-yet"
+  }
+ }
+]

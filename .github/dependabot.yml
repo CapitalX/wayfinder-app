@@ -1,0 +1,72 @@
+# Weekly grouped updates; 7-day cooldown; minor/patch grouped, majors one PR each.
+# Security updates are separate (repo setting) and skip the cooldown.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    labels: [dependencies, no-release-note]
+    commit-message:
+      prefix: deps
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    labels: [dependencies, no-release-note]
+    commit-message:
+      prefix: deps
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+  - package-ecosystem: docker-compose
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    labels: [dependencies, no-release-note]
+    commit-message:
+      prefix: deps
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    labels: [dependencies, no-release-note]
+    commit-message:
+      prefix: deps
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]

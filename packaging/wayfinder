@@ -1,0 +1,487 @@
+#!/usr/bin/env bash
+# wayfinder: start, stop, update and check a Wayfinder installed by install.sh or Homebrew.
+# Run `wayfinder help` for the commands. Works with the bash 3.2 that ships with macOS.
+set -uo pipefail
+
+REPO="${WAYFINDER_REPO:-__PUBLIC_REPO__}"   # owner/name of the public repo; filled in when a release is packed
+BASE="${WAYFINDER_DOWNLOAD_BASE:-https://github.com/$REPO/releases}"
+
+# The app folder is the one this script lives in (packaging/..), wherever the command link points from.
+self="$0"
+while [ -L "$self" ]; do
+  link=$(readlink "$self"); case "$link" in /*) self="$link" ;; *) self="$(dirname "$self")/$link" ;; esac
+done
+APP=$(cd "$(dirname "$self")/.." && pwd -P)
+ROOT="${WAYFINDER_INSTALL_DIR:-$HOME/.local/share/wayfinder}"   # <version>/ folders and the `current` link
+MANAGED_BY="${WAYFINDER_MANAGED_BY:-}"                          # "homebrew" when Homebrew installed it
+# Where the server runs from: the `current` link for an install.sh copy (so an update or a rollback only moves the
+# link), otherwise this folder (Homebrew, a git checkout).
+installed() { [ "$(cd "$ROOT" 2>/dev/null && pwd -P)" = "$(dirname "$APP")" ]; }
+installed && RUN_DIR="$ROOT/current" || RUN_DIR="$APP"
+
+# The same settings and defaults as the server (src/server/config.ts).
+env_or() { local v; eval "v=\${WAYFINDER_$1:-\${SNW_$1:-}}"; [ -n "$v" ] && echo "$v" || echo "$2"; }
+DATA=$(env_or DATA_DIR "$HOME/wayfinder-data")
+CONFIG=$(env_or CONFIG_DIR "$HOME/.config/wayfinder")
+PORT=$(env_or PORT 8797)
+HOST=$(env_or HOST 127.0.0.1)
+case "$HOST" in 0.0.0.0|::|'[::]') LOCAL=127.0.0.1 ;; *) LOCAL="$HOST" ;; esac
+URL="http://$LOCAL:$PORT"
+PIDFILE="$DATA/wayfinder.pid"
+LOG="$DATA/wayfinder.log"
+UNIT=wayfinder
+UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+BIN_DIR="${WAYFINDER_BIN_DIR:-$HOME/.local/bin}"   # where install.sh put the command link
+MARK="# Written by wayfinder service install"
+
+say() { printf '%s\n' "$*"; }
+die() { printf 'wayfinder: %s\n' "$*" >&2; exit 1; }
+
+# Node: the one on PATH if it's new enough, else the one the installer recorded.
+node_ok() { "$1" -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>22||(a===22&&b>=13)?0:1)' 2>/dev/null; }
+NODE=""; NODE_DIR=""
+for n in "${WAYFINDER_NODE:-}" "$(command -v node 2>/dev/null)" "$ROOT/node"; do
+  [ -n "$n" ] && [ -x "$n" ] && node_ok "$n" && { NODE="$n"; break; }
+done
+# Put that Node first on PATH: npm and the ServiceNow SDK start with `#!/usr/bin/env node`, and an nvm Node
+# isn't on PATH outside your shell.
+[ -n "$NODE" ] && NODE_DIR=$("$NODE" -p 'require("path").dirname(process.execPath)') && PATH="$NODE_DIR:$PATH" && export PATH
+need_node() { [ -n "$NODE" ] || die "Wayfinder needs Node 22.13 or newer, and none was found. Install it (https://nodejs.org, your package manager, nvm or Homebrew), then try again."; }
+# npm from the same Node installation ($NODE may be a link, e.g. to an nvm Node).
+npm_bin() { [ -x "$NODE_DIR/npm" ] && echo "$NODE_DIR/npm" || echo npm; }
+
+version_of() { "${NODE:-node}" -p "require('$1/package.json').version" 2>/dev/null; }
+app() { (cd "$APP" && "$NODE" --import tsx "$@"); }   # run a TypeScript file from the app folder, like the server
+token() { app src/server/token.ts "$@" 2>/dev/null | tail -1; }
+answers() { curl -s -m 2 -o /dev/null "$URL/api/session" -w '%{http_code}' 2>/dev/null | grep -qv '^000$'; }
+# The token goes to curl on stdin, not as an argument, so other users can't read it from the process list.
+api() { printf 'Authorization: Bearer %s\n' "$(token)" | curl -s -m "${2:-10}" -H @- "${@:3}" "$URL$1"; }
+json() { "$NODE" -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{j=null}process.stdout.write(String((new Function("j","return "+process.argv[1]))(j)??""))})' "$1"; }
+
+# How it runs in the background: Homebrew's service, our systemd user unit, or a plain background process.
+systemd_ok() { command -v systemctl >/dev/null && systemctl --user show-environment >/dev/null 2>&1; }
+manager() {
+  if [ "$MANAGED_BY" = homebrew ]; then echo homebrew
+  elif [ -f "$UNIT_DIR/$UNIT.service" ] && systemd_ok; then echo systemd
+  else echo process; fi
+}
+pid_alive() { [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; }
+
+wait_ready() {
+  for _ in $(seq 1 45); do
+    answers && return 0
+    [ "$(manager)" = process ] && ! pid_alive && return 1   # it exited (a crash at start): no point waiting
+    sleep 1
+  done
+  return 1
+}
+
+cmd_start() {
+  need_node
+  if [ "${1:-}" = --foreground ]; then
+    # Run by a service with no terminal (Homebrew's launchd job): the log goes in the private data folder, not a
+    # shared one. In a terminal, it shows there.
+    if [ ! -t 1 ]; then mkdir -p "$DATA" && chmod 700 "$DATA" && exec >>"$LOG" 2>&1; fi
+    cd "$RUN_DIR" && exec "$NODE" --import tsx src/server/main.ts
+  fi
+  if answers; then say "Wayfinder is already running at $URL"; return 0; fi
+  mkdir -p "$DATA" && chmod 700 "$DATA"
+  case "$(manager)" in
+    homebrew) brew services start wayfinder >/dev/null || die "brew services couldn't start it; see: wayfinder logs" ;;
+    systemd) systemctl --user start "$UNIT" || die "systemctl couldn't start it; see: wayfinder logs" ;;
+    process)
+      # Deaf to hang-ups, so closing the terminal doesn't stop it. Not nohup (on macOS it fails with "can't detach
+      # from console" when there's no console session) and not setsid (it may fork, so $! would be the wrong process).
+      (cd "$RUN_DIR" && trap '' HUP && exec "$NODE" --import tsx src/server/main.ts </dev/null >>"$LOG" 2>&1) &
+      echo $! >"$PIDFILE"
+      ;;
+  esac
+  wait_ready || die "it didn't come up on $URL; see: wayfinder logs"
+  say "Wayfinder is running at $URL"
+  say "Sign in with your login token: wayfinder token"
+}
+
+cmd_stop() {
+  case "$(manager)" in
+    homebrew) brew services stop wayfinder >/dev/null ;;
+    systemd) systemctl --user stop "$UNIT" ;;
+    process)
+      if pid_alive; then
+        local pid; pid=$(cat "$PIDFILE"); kill "$pid"
+        for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+        kill -0 "$pid" 2>/dev/null && kill -9 "$pid"
+      elif answers; then
+        die "something answers on $URL, but this command didn't start it (a service or another copy?); stop that one"
+      fi
+      rm -f "$PIDFILE" ;;
+  esac
+  for _ in $(seq 1 20); do answers || break; sleep 0.5; done
+  answers && die "something still answers on $URL (another copy?); stop that one"
+  say "Wayfinder is stopped"
+}
+
+cmd_restart() { cmd_stop >/dev/null; cmd_start; }
+
+cmd_status() {
+  local v; v=$(version_of "$APP")
+  if answers; then
+    local running; running=$(api /api/about 2 | json 'j&&j.version')
+    say "running   yes, at $URL${running:+ (version $running)}"
+  else
+    say "running   no (start it with: wayfinder start)"
+  fi
+  say "installed $v, in $APP"
+  say "runs as   $(manager | sed 's/process/a background process/;s/systemd/a systemd user service/;s/homebrew/a Homebrew service/')"
+  say "data      $DATA"
+  say "settings  $CONFIG"
+}
+
+cmd_open() {
+  answers || say "(Wayfinder isn't answering yet; start it with: wayfinder start)"
+  if grep -qi microsoft /proc/version 2>/dev/null; then
+    # WSL forwards localhost, so the Windows browser reaches the server here.
+    command -v wslview >/dev/null && wslview "$URL" || cmd.exe /c start "" "$URL" 2>/dev/null
+  elif [ "$(uname -s)" = Darwin ]; then open "$URL"
+  elif command -v xdg-open >/dev/null; then xdg-open "$URL" >/dev/null 2>&1
+  else say "Open $URL in your browser"; return 0; fi
+  say "Opened $URL"
+}
+
+cmd_token() {
+  need_node
+  case "${1:-}" in
+    status) token status ;;
+    '') token ;;
+    *) die "usage: wayfinder token [status]" ;;
+  esac
+}
+
+cmd_logs() {
+  local follow=""; [ "${1:-}" = -f ] && follow=1
+  case "$(manager)" in
+    systemd) journalctl --user -u "$UNIT" -n 100 --no-pager ${follow:+-f} ;;
+    homebrew|process) [ -f "$LOG" ] || die "no log yet ($LOG)"; tail -n 100 ${follow:+-f} "$LOG" ;;
+  esac
+}
+
+# The newest release, read from its checksum list (no API, no rate limit): prints its version.
+sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
+latest_version() {
+  curl -fsSL -m "${1:-20}" "$BASE/latest/download/SHA256SUMS" 2>/dev/null | sed -n 's/.*wayfinder-\([0-9][0-9.]*\)\.tgz$/\1/p' | head -1
+}
+
+cmd_version() {
+  say "wayfinder $(version_of "$APP")"
+  [ "${1:-}" = --local ] && return 0
+  local l; l=$(latest_version 5)
+  [ -n "$l" ] && say "latest release: $l" || say "(couldn't check for a newer release)"
+}
+
+# Downloads release $1 into $ROOT/$1, checks it against SHA256SUMS and installs its packages. Leaves `current` alone.
+fetch_release() {
+  local v="$1" tmp f want got
+  [ -f "$ROOT/$v/.installed" ] && return 0
+  tmp=$(mktemp -d); f="wayfinder-$v.tgz"
+  curl -fsSL "$BASE/download/v$v/SHA256SUMS" -o "$tmp/SHA256SUMS" || { rm -rf "$tmp"; die "couldn't download the checksums for $v"; }
+  curl -fsSL "$BASE/download/v$v/$f" -o "$tmp/$f" || { rm -rf "$tmp"; die "couldn't download $f"; }
+  want=$(awk -v f="$f" '$2==f||$2=="*"f{print $1}' "$tmp/SHA256SUMS"); got=$(sha256 "$tmp/$f")
+  [ -n "$want" ] && [ "$want" = "$got" ] || { rm -rf "$tmp"; die "$f doesn't match its published checksum; nothing was changed"; }
+  rm -rf "$ROOT/.$v.partial"; mkdir -p "$ROOT/.$v.partial"
+  tar -xzf "$tmp/$f" -C "$ROOT/.$v.partial" --strip-components=1 || { rm -rf "$tmp"; die "couldn't unpack $f"; }
+  rm -rf "$tmp"
+  finish_install "$ROOT/.$v.partial" || die "installing $v's packages failed; nothing was changed"
+  rm -rf "${ROOT:?}/$v"; mv "$ROOT/.$v.partial" "$ROOT/$v"
+}
+
+# Installs the packages of an unpacked release. --ignore-scripts: no dependency install script runs on the machine
+# that holds your keys (none is needed).
+finish_install() {
+  need_node
+  (cd "$1" && "$(npm_bin)" ci --omit=dev --ignore-scripts --no-audit --no-fund --update-notifier=false --loglevel=error >/dev/null) || return 1
+  touch "$1/.installed"
+}
+
+link_current() {  # $1 = version. -n: replace the link itself, not something inside the folder it points to.
+  ln -sfn "$1" "$ROOT/current" && [ "$(readlink "$ROOT/current")" = "$1" ] || die "couldn't switch $ROOT/current to $1"
+}
+
+# The short profile: an update goes back only for what the release itself broke (see ops/smoke.ts).
+smoke() { (cd "$RUN_DIR" && WAYFINDER_URL="$URL" WAYFINDER_SMOKE=update "$NODE" --import tsx ops/smoke.ts); }
+
+# A restart ends Pip's running answers, so an update waits until the app says none are running (up to
+# WAYFINDER_UPDATE_WAIT seconds, default 30 min). A reply it can't read counts as busy; only "nothing is listening"
+# (curl exit 7) counts as none. If the wait runs out, it goes ahead and each cut-off chat says so, with Continue.
+busy_count() {
+  local out rc
+  out=$(printf 'Authorization: Bearer %s\n' "$(token)" | curl -s -m 5 -H @- -w '\n%{http_code}' "$URL/api/busy" 2>/dev/null; echo " ${PIPESTATUS[1]}"); rc=${out##* }; out=${out% *}   # curl's own exit code, not the pipe's
+  [ "$rc" = 7 ] && { echo 0; return; }
+  [ "$rc" = 0 ] && [ "${out##*$'\n'}" = 200 ] || { echo unknown; return; }
+  printf '%s' "${out%$'\n'*}" | json '(j && Number.isInteger(j.answering) && j.answering >= 0) ? j.answering : "unknown"'
+}
+wait_idle() {
+  local n said="" end=$(( $(date +%s) + ${WAYFINDER_UPDATE_WAIT:-1800} ))
+  while n=$(busy_count); [ "$n" != 0 ]; do
+    if [ "$(date +%s)" -ge "$end" ]; then say "Pip may still be answering; restarting anyway (a cut-off chat will say so)"; return 0; fi
+    if [ -z "$said" ]; then
+      [ "$n" = unknown ] && say "Waiting: Wayfinder couldn't say whether Pip is answering; asking again before restarting…" || say "Waiting for Pip to finish $n answer(s) before restarting…"
+      said=1
+    fi
+    sleep "${WAYFINDER_UPDATE_POLL:-15}"
+  done
+}
+
+# The restart window: new answers wait for the new server instead of starting in one that's about to stop (the app
+# reads <data>/updating.json; the new server clears it when it starts, and `until` ends one left behind).
+hold_answers() { mkdir -p "$DATA" && printf '{"until":%s}\n' "$(( ($(date +%s) + 120) * 1000 ))" >"$DATA/updating.json"; }
+release_answers() { rm -f "$DATA/updating.json"; }
+quiet() {  # no answers running, and new ones held; one that slipped in before the hold is waited for too. Fails if the
+  # hold can't be written: then nothing may restart, because new answers would still start.
+  local end=$(( $(date +%s) + ${WAYFINDER_UPDATE_WAIT:-1800} ))
+  while :; do
+    wait_idle; hold_answers || return 1
+    [ "$(busy_count)" = 0 ] || [ "$(date +%s)" -ge "$end" ] && return 0
+    release_answers
+  done
+}
+
+cmd_update() {
+  need_node
+  [ "$MANAGED_BY" = homebrew ] && die "Homebrew manages this copy: brew upgrade wayfinder"
+  installed || die "this copy ($APP) wasn't installed by install.sh; update it the way you installed it (for a git checkout: see docs/RUNBOOK.md)"
+  local cur l prev was_running=""
+  cur=$(version_of "$APP"); l=$(latest_version) || true
+  [ -n "$l" ] || die "couldn't find the latest release at $BASE"
+  if [ "$cur" = "$l" ]; then say "Wayfinder $cur is up to date"; return 0; fi
+  if [ "${1:-}" = --check ]; then say "Update available: $cur → $l (install it with: wayfinder update)"; return 0; fi
+  if [ "$(cat "$ROOT/.failed" 2>/dev/null)" = "$l" ] && [ "${1:-}" != --force ]; then
+    say "Skipping $l: it failed its checks here before, and Wayfinder went back to $cur. Try it again with: wayfinder update --force"
+    return 1
+  fi
+  say "Updating Wayfinder $cur → $l"
+  fetch_release "$l"
+  prev=$(readlink "$ROOT/current")
+  answers && was_running=1
+  if [ -n "$was_running" ] && ! quiet; then
+    release_answers; die "couldn't hold new answers for the restart ($DATA/updating.json), so nothing changed; still running $cur"
+  fi
+  link_current "$l"
+  if [ -z "$was_running" ]; then say "Installed $l; it runs the next time you start Wayfinder"; prune "$l" "$prev"; return 0; fi
+  # This shell keeps running the old version's copy of this script (it has the file open, and the old version stays
+  # on disk until prune), so the rest of the update is the old code; only new runs of `wayfinder` get the new one.
+  # Subshells: a failed start ends with `die`, which must not end this update before it can go back.
+  local out why=""
+  if ! out=$( (cmd_restart) 2>&1 ); then why="it didn't start: $(printf '%s\n' "$out" | tail -1)"
+  elif ! out=$(smoke 2>&1); then why="smoke test: $(printf '%s\n' "$out" | grep -E '^FAIL|Error' | head -3 | paste -sd ';' -)"
+  fi
+  if [ -z "$why" ]; then
+    release_answers; say "Wayfinder $l is running at $URL"; rm -f "$ROOT/.failed"; prune "$l" "$prev"; return 0
+  fi
+  say "Version $l failed its checks after the restart ($why); going back to $prev"
+  link_current "$prev"; (cmd_restart) >/dev/null 2>&1; release_answers
+  echo "$l" >"$ROOT/.failed"; rm -rf "${ROOT:?}/$l"   # the daily check won't retry it; --force does
+  answers && say "Back on $prev and running" || say "Back on $prev, but it isn't answering; see: wayfinder logs"
+  return 1
+}
+
+prune() {  # keep the current and the previous version; drop older ones and leftovers
+  local d
+  for d in "$ROOT"/*/ "$ROOT"/.*.partial; do
+    [ -d "$d" ] || continue; d=${d%/}
+    case "$(basename "$d")" in current|"$1"|"$2") ;; *) rm -rf "$d" ;; esac
+  done
+}
+
+# systemd user units for Linux and WSL (with systemd on): the app, and an optional daily update.
+# In a unit, a value in double quotes keeps spaces; backslashes and quotes are escaped, and % (systemd's specifier
+# sign) is doubled. WorkingDirectory takes a bare path, so only % is escaped there.
+unit_quote() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/%/%%/g')"; }
+unit_path() { printf '%s' "$1" | sed 's/%/%%/g'; }
+cmd_service() {
+  local unit="$UNIT_DIR/$UNIT.service" timer="$UNIT_DIR/$UNIT-upgrade.timer" svc="$UNIT_DIR/$UNIT-upgrade.service"
+  case "${1:-}" in
+    install)
+      need_node
+      systemd_ok || die "systemd user services aren't available here; Wayfinder runs as a background process instead"
+      [ -f "$unit" ] && ! grep -q "$MARK" "$unit" && die "$unit exists and wasn't written by this command; leaving it alone"
+      case "$RUN_DIR$NODE$BIN_DIR" in *"
+"*) die "a path has a line break in it; systemd can't use it" ;; esac
+      mkdir -p "$UNIT_DIR"
+      cat >"$unit" <<EOF
+$MARK
+[Unit]
+Description=Wayfinder
+After=network-online.target
+
+[Service]
+WorkingDirectory=$(unit_path "$RUN_DIR")
+Environment=$(unit_quote "PATH=$NODE_DIR:/usr/local/bin:/usr/bin:/bin")
+ExecStart=$(unit_quote "$NODE") --import tsx src/server/main.ts
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+EOF
+      if [ "${2:-}" = --updates ]; then
+        cat >"$svc" <<EOF
+$MARK
+[Service]
+Type=oneshot
+ExecStart=$(unit_quote "$BIN_DIR/wayfinder") update
+EOF
+        cat >"$timer" <<EOF
+$MARK
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+[Install]
+WantedBy=timers.target
+EOF
+      fi
+      pid_alive && cmd_stop >/dev/null   # a background copy would hold the port
+      systemctl --user daemon-reload
+      systemctl --user enable "$UNIT" >/dev/null 2>&1
+      [ -f "$timer" ] && systemctl --user enable --now "$UNIT-upgrade.timer" >/dev/null 2>&1
+      say "Installed the systemd user service$([ -f "$timer" ] && echo ' and a daily update check')."
+      say "To keep it running after you log out: loginctl enable-linger \"\$USER\""
+      ;;
+    remove)
+      systemd_ok && { systemctl --user disable --now "$UNIT-upgrade.timer" "$UNIT" >/dev/null 2>&1; }
+      for f in "$unit" "$svc" "$timer"; do [ -f "$f" ] && grep -q "$MARK" "$f" && rm -f "$f"; done
+      systemd_ok && systemctl --user daemon-reload
+      say "Removed the systemd user service"
+      ;;
+    *) die "usage: wayfinder service install [--updates] | remove" ;;
+  esac
+}
+
+# doctor: one line per check, with a plain fix. Exits 1 if anything failed (warnings don't count).
+fails=0
+ok()   { printf '  ok    %s\n' "$1"; }
+warn() { printf '  warn  %s\n' "$1"; [ -n "${2:-}" ] && printf '        → %s\n' "$2"; return 0; }
+bad()  { printf '  FAIL  %s\n' "$1"; [ -n "${2:-}" ] && printf '        → %s\n' "$2"; fails=$((fails + 1)); }
+perm() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1" 2>/dev/null; }
+private_dir() {  # $1 = label, $2 = folder
+  [ -d "$2" ] || { warn "$1 folder $2 doesn't exist yet" "it's created (private) on the first start"; return; }
+  local m; m=$(perm "$2")
+  [ -w "$2" ] || { bad "$1 folder $2 isn't writable by you" "chown -R \"\$USER\" \"$2\""; return; }
+  case "$m" in
+    700) ok "$1 folder $2 (private, 700)" ;;
+    *) bad "$1 folder $2 is open to others ($m)" "chmod 700 \"$2\" (Wayfinder also does this when it starts)" ;;
+  esac
+}
+
+cmd_doctor() {
+  say "Wayfinder doctor ($(version_of "$APP" 2>/dev/null || echo '?'), $APP)"
+  if [ -n "$NODE" ]; then ok "Node $("$NODE" -p process.versions.node) ($NODE)"
+  else bad "Node 22.13 or newer not found" "install it from https://nodejs.org, your package manager, nvm or Homebrew"; fi
+  if [ -d "$APP/node_modules/tsx" ] && [ -f "$APP/dist/web/index.html" ]; then ok "app files complete"
+  else bad "app files incomplete in $APP" "reinstall: curl -fsSL $BASE/latest/download/install.sh | sh"; fi
+
+  private_dir data "$DATA"
+  private_dir settings "$CONFIG"
+  if [ -f "$CONFIG/secrets.json" ]; then
+    case "$(perm "$CONFIG/secrets.json")" in 600|400) ok "keys file is private" ;;
+      *) bad "keys file $CONFIG/secrets.json is readable by others" "chmod 600 \"$CONFIG/secrets.json\"" ;; esac
+  fi
+  local free; free=$(df -Pk "$DATA" 2>/dev/null | awk 'NR==2{print $4}')
+  if [ -z "$free" ]; then warn "couldn't read the free disk space"
+  elif [ "$free" -lt 204800 ]; then bad "only $((free / 1024)) MB free on the data disk" "free some space: chats, builds and backups need room"
+  elif [ "$free" -lt 1048576 ]; then warn "only $((free / 1024)) MB free on the data disk" "builds and weekly backups need room"
+  else ok "$((free / 1048576)) GB free on the data disk"; fi
+  command -v git >/dev/null && ok "git (Build mode keeps each app in git)" || warn "git not found" "install git to use Build mode"
+  if [ -f "${SNDOCS_TOKEN_FILE:-$HOME/.config/sndocs/token}" ]; then ok "ServiceNow docs: a docs server is set up"
+  elif ls "$DATA/docs/"*.db >/dev/null 2>&1; then ok "ServiceNow docs: on this machine ($(cd "$DATA/docs" && ls *.db | sed 's/\.db$//' | tr '\n' ' '| sed 's/ $//'))"
+  else warn "ServiceNow docs aren't set up, so answers won't cite them" "wayfinder docs setup"; fi
+  if [ "$(uname -s)" = Linux ]; then
+    command -v bwrap >/dev/null && ok "bubblewrap (build sandbox)" || warn "bubblewrap not found: Build mode won't run" "sudo apt install bubblewrap"
+  fi
+
+  if ! answers; then
+    warn "Wayfinder isn't running, so Claude and your instance weren't checked" "wayfinder start, then wayfinder doctor again"
+    if [ -n "${ANTHROPIC_API_KEY:-}" ]; then ok "Claude: an API key is present in the environment (not tested)"
+    else warn "Claude: no API key in the environment; a saved key can only be checked while running" "start Wayfinder and save an Anthropic API key in first-run setup"; fi
+  else
+    ok "running at $URL"
+    local c st; c=$(api /api/setup/claude 60 -X POST -H 'Content-Type: application/json' -d '{}')
+    if [ "$(printf '%s' "$c" | json 'j&&j.ok')" = true ]; then ok "Claude answers ($(printf '%s' "$c" | json 'j.source||"ok"'))"
+    else bad "Claude didn't answer: $(printf '%s' "$c" | json '(j&&j.error)||"no reply"')" "save an Anthropic API key in setup or set ANTHROPIC_API_KEY"; fi
+    st=$(api /api/status/check 30 -X POST -H 'Content-Type: application/json' -d '{}')
+    case "$(printf '%s' "$st" | json 'j&&j.state')" in
+      '') warn "no instance connected" "Settings → Instances → Connect an instance" ;;
+      awake) ok "instance $(printf '%s' "$st" | json 'j.url') is awake" ;;
+      hibernating) bad "instance $(printf '%s' "$st" | json 'j.url') is asleep (hibernating) or waking up" "wake it at developer.servicenow.com; Wayfinder checks again by itself" ;;
+      auth_failed) bad "instance $(printf '%s' "$st" | json 'j.url') refused the sign-in" "Settings → Instances → reconnect (wrong or rotated secret?)" ;;
+      *) bad "instance $(printf '%s' "$st" | json 'j.url') can't be reached ($(printf '%s' "$st" | json 'j.state'))" "check the address and your network" ;;
+    esac
+    if [ "$(printf '%s' "$st" | json 'j&&j.state')" = awake ]; then
+      st=$(api /api/status 10)
+      local who; who=$(printf '%s' "$st" | json 'j.user||"the integration user"')
+      if [ "$(printf '%s' "$st" | json 'j.can&&j.can.known')" != true ]; then warn "the account's roles haven't been checked yet" "Settings → Instances → Access → Check again"
+      elif [ "$(printf '%s' "$st" | json 'j.can.build')" = true ]; then ok "$who can install plugins and the apps it builds"
+      else warn "$who can't install plugins or apps (it stays within its roles)" "give $who the roles admin and sn_cicd.sys_ci_automation"; fi
+    fi
+  fi
+  [ "$fails" -eq 0 ] && say "All checks passed." || say "$fails check(s) failed."
+  [ "$fails" -eq 0 ]
+}
+
+# The ServiceNow docs Pip cites, indexed on this machine (src/server/docsCli.ts). Without --release, setup picks the
+# connected instance's release when Wayfinder is running and knows it, else the newest.
+cmd_docs() {
+  need_node
+  command -v git >/dev/null || die "the docs download needs git; install it, then try again"
+  local sub="${1:-status}"; [ $# -gt 0 ] && shift
+  case "$sub" in
+    setup)
+      case " $* " in *" --release "*) ;; *)
+        if answers; then
+          local rel; rel=$(api /api/docs/releases 10 | json 'j&&j.instanceRelease||""')
+          [ -n "$rel" ] && set -- "$@" --instance "$rel"
+        fi ;;
+      esac
+      app src/server/docsCli.ts setup "$@" ;;
+    update|status) app src/server/docsCli.ts "$sub" "$@" ;;
+    *) die "usage: wayfinder docs setup [--release <family>] | update | status" ;;
+  esac
+}
+
+usage() {
+  cat <<'EOF'
+wayfinder: run your self-hosted Wayfinder
+
+  start [--foreground]   start it in the background and print its address
+  stop                   stop it
+  restart                stop, then start
+  status                 running or not, version, address, folders
+  open                   open it in your browser
+  token [status]         print your login token (or the read-only status token)
+  update [--check|--force]
+                         install the latest release (checksum-checked); goes back if it fails its checks
+  doctor                 check Node, folders, disk, Claude and your instance, with a fix for each problem
+  docs setup [--release <family>] | update | status
+                         download and index the ServiceNow docs on this machine (needs git, ~1.5 GB), so Pip cites them
+  version [--local]      installed version, and the latest release
+  logs [-f]              the last lines of the server log (-f: keep following)
+  service install [--updates] | remove
+                         run it as a systemd user service (Linux, WSL with systemd); --updates adds a daily update
+EOF
+}
+
+case "${1:-help}" in
+  start) shift; cmd_start "$@" ;;
+  stop) cmd_stop ;;
+  restart) cmd_restart ;;
+  status) cmd_status ;;
+  open) cmd_open ;;
+  token) shift; cmd_token "$@" ;;
+  update) shift; cmd_update "$@" ;;
+  doctor) cmd_doctor ;;
+  docs) shift; cmd_docs "$@" ;;
+  version|--version|-v) shift; cmd_version "$@" ;;
+  logs) shift; cmd_logs "$@" ;;
+  service) shift; cmd_service "$@" ;;
+  _finish-install) shift; finish_install "$1" ;;   # used by install.sh
+  help|--help|-h) usage ;;
+  *) usage >&2; exit 2 ;;
+esac

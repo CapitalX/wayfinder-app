@@ -1,0 +1,21 @@
+[now-sdk] Initiating the build process with SDK 4.13.6...
+[now-sdk] Building project from /work/x_test_app...
+[now-sdk] ERROR: Plugin "ColumnPlugin" failed to transform "CallExpressionShape" shape into record (source: /work/x_test_app/src/fluent/case.now.ts): Failed to cast ArrayShape to ObjectShape
+[now-sdk] ERROR: [96msrc/fluent/case.now.ts[0m:[93m2[0m:[93m78[0m - [91merror[0m[90m TS213: [0mInvalid column in table schema
+
+[7m2[0m export const x_test_t_loan = Table({ name: 'x_test_t_loan', schema: { state: ChoiceColumn({ label: 'State', choices: ['open', 'closed'] }) } })
+[7m [0m [91m                                                                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+
+[now-sdk] ERROR: [96msrc/fluent/case.now.ts[0m:[93m2[0m:[93m109[0m - [91merror[0m[90m TS2322: [0mType 'string[]' is not assignable to type 'Choices<string | number>'.
+  Index signature for type 'string' is missing in type 'string[]'.
+
+[7m2[0m export const x_test_t_loan = Table({ name: 'x_test_t_loan', schema: { state: ChoiceColumn({ label: 'State', choices: ['open', 'closed'] }) } })
+[7m [0m [91m                                                                                                            ~~~~~~~[0m
+
+[now-sdk] ERROR: [96msrc/fluent/case2.now.ts[0m:[93m1[0m:[93m31[0m - [91merror[0m[90m TS6133: [0m'IntegerColumn' is declared but its value is never read.
+
+[7m1[0m import { Table, StringColumn, IntegerColumn } from '@servicenow/sdk/core'
+[7m [0m [91m                              ~~~~~~~~~~~~~[0m
+
+[now-sdk] ERROR: Found 3 diagnostic error(s) while building the project.
+[now-sdk] ERROR: Build failed due to errors

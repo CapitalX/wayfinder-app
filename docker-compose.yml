@@ -1,0 +1,16 @@
+# docker compose up -d   then   docker compose exec wayfinder npx tsx src/server/token.ts   for your login token.
+# Published on 127.0.0.1 only: reach it from other devices through a private network (e.g. Tailscale), never the open internet.
+services:
+  wayfinder:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8797:8797"
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - wayfinder-data:/data
+      - wayfinder-config:/config
+volumes:
+  wayfinder-data:
+  wayfinder-config:

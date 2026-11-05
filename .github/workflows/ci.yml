@@ -1,0 +1,47 @@
+name: ci
+# Public contributions run only on GitHub-hosted Linux.
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  pull-requests: read # gitleaks reads the PR's commit list
+# One run per PR: a new push cancels the PR's older run. Pushes to the default branch always finish.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --ignore-scripts
+      - run: npx tsc -p . --noEmit
+      - run: npm run build
+      - run: npm test
+      - name: Fluent cheat sheet examples still build
+        run: npm run check:fluent
+      # Hosted Linux includes Chrome; fall back to the headless shell if needed.
+      - name: UI flows
+        run: |
+          if chrome=$(command -v google-chrome || command -v chromium || command -v chromium-browser); then
+            export CHROME="$chrome"
+          else
+            npx --yes @puppeteer/browsers@3.2.4 install chrome-headless-shell@stable --path "$HOME/.cache/wayfinder-chs"
+          fi
+          npm run test:ui
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false

@@ -1,0 +1,42 @@
+# Homebrew formula for Wayfinder. pack.sh fills in the repo, version and checksum; the release workflow copies the
+# result to the tap repo (<owner>/homebrew-tap, Formula/wayfinder.rb).
+class Wayfinder < Formula
+  desc "Self-hosted ServiceNow workspace with an AI companion, connected to your own instance"
+  homepage "https://github.com/__PUBLIC_REPO__"
+  url "https://github.com/__PUBLIC_REPO__/releases/download/v@VERSION@/wayfinder-@VERSION@.tgz"
+  sha256 "@SHA256@"
+  license "Apache-2.0"
+
+  depends_on "node@22"
+
+  def install
+    libexec.install Dir["*"]
+    node = Formula["node@22"].opt_bin
+    # No dependency install scripts: none is needed, and this machine will hold your instance keys.
+    cd libexec do
+      system node/"npm", "ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--update-notifier=false"
+    end
+    (bin/"wayfinder").write_env_script libexec/"packaging/wayfinder",
+      PATH:                 "#{node}:$PATH",
+      WAYFINDER_MANAGED_BY: "homebrew"
+  end
+
+  def caveats
+    <<~EOS
+      Start it (and at every login):  brew services start wayfinder
+      Your login token:                wayfinder token
+      Data stays in ~/wayfinder-data and settings in ~/.config/wayfinder; upgrades and uninstalls leave them alone.
+    EOS
+  end
+
+  # No log_path: Homebrew's log folder is shared. `wayfinder start --foreground` writes its log to the private data
+  # folder (~/wayfinder-data/wayfinder.log) when it has no terminal; `wayfinder logs` shows it.
+  service do
+    run [opt_bin/"wayfinder", "start", "--foreground"]
+    keep_alive true
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/wayfinder version --local")
+  end
+end

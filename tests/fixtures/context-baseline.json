@@ -1,0 +1,27 @@
+{
+  "explore": {
+    "prompt": 6104,
+    "tools": 14062,
+    "total": 20166
+  },
+  "mockup": {
+    "prompt": 9010,
+    "tools": 14571,
+    "total": 23581
+  },
+  "decide": {
+    "prompt": 6650,
+    "tools": 14062,
+    "total": 20712
+  },
+  "debug": {
+    "prompt": 6324,
+    "tools": 15358,
+    "total": 21682
+  },
+  "build": {
+    "prompt": 10465,
+    "tools": 31162,
+    "total": 41627
+  }
+}

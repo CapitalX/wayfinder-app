@@ -1,0 +1,22 @@
+Wayfinder
+Copyright 2026 The Wayfinder authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Wayfinder builds on the following third-party software, installed as dependencies and used under their own licenses:
+
+- Claude Agent SDK (https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk), © Anthropic PBC. Used under
+  Anthropic's legal agreements (https://code.claude.com/docs/en/legal-and-compliance). Each user needs their own
+  Anthropic API key.
+- ServiceNow SDK (@servicenow/sdk, @servicenow/sdk-api), © ServiceNow, Inc. MIT License.
+- Geist and Geist Mono typefaces (https://vercel.com/font), © The Geist Project Authors. SIL Open Font License 1.1;
+  included in src/web/fonts with its license.
+- faster-whisper (https://github.com/SYSTRAN/faster-whisper), MIT License, used for optional local speech-to-text.
+- ServiceNow documentation (https://github.com/ServiceNow/ServiceNowDocs), © ServiceNow, Inc., Apache License 2.0.
+  Not shipped with Wayfinder: `wayfinder docs setup` downloads it from that repository and builds a search index on
+  the user's own machine.
+- Hono, React, react-markdown, remark-gfm, zod, Vite and other packages under MIT or similarly permissive licenses
+  (see each package in node_modules).
+
+ServiceNow is a trademark of ServiceNow, Inc. Wayfinder is an independent project and is not affiliated with,
+sponsored by or endorsed by ServiceNow, Inc.
