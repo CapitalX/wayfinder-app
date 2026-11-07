@@ -22,8 +22,12 @@ the ⓘ panel).
   checkout are hidden, host processes are invisible, only the app's own folder is writable, and builds have no network.
   Every build process gets an allowlisted environment (never the Claude key or the app token), CPU, file-size and
   open-file limits plus a capped Node heap, and is stopped with its whole process group (SIGKILL after a grace period).
-  App file tools refuse symlinks, `.git` and paths that resolve outside the app. Installs get network plus the instance
-  sign-in: a short-lived token, or the saved password for username/password connections (the approval card says which).
+  App file tools refuse symlinks, `.git` and paths that resolve outside the app. Packaging also runs without network or
+  credentials. The server saves a separate package copy with its build commit and SHA-256 hash outside the app folder.
+- **Trusted package uploads.** Installs check that saved package against the approved commit and hash, refusing links
+  and paths outside the build output. Only the SDK's HTTP Connector receives credentials in memory; it uploads the
+  package as data, never loads the app's config or source, and never runs a process, package script or hook. Cancellation
+  and a 15-minute timeout abort upload requests and progress polling; an instance may still finish work already received.
 - **Secrets stay local.** Instance credentials live in a mode-600 file on the host; "Sign in as me" stores only a
   refresh token. Same-origin JSON-only writes protect against cross-site requests.
 

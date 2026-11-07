@@ -11,10 +11,13 @@ const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catc
 const until = async (fn: () => boolean, ms: number) => { const end = Date.now() + ms; while (Date.now() < end) { if (fn()) return true; await new Promise((r) => setTimeout(r, 100)); } return fn(); };
 
 describe('childEnv', () => {
-  it('passes only the base variables and the install sign-in', () => {
-    const env = childEnv({ SN_SDK_INSTANCE_URL: 'https://dev12345.service-now.com', SN_SDK_SESSION_BEARER_TOKEN: 't' });
-    expect(Object.keys(env).sort()).toEqual(['CI', 'FORCE_COLOR', 'HOME', 'NODE_OPTIONS', 'NO_COLOR', 'PATH', 'SN_SDK_INSTANCE_URL', 'SN_SDK_SESSION_BEARER_TOKEN']);
+  it('passes only the base variables', () => {
+    const env = childEnv();
+    expect(Object.keys(env).sort()).toEqual(['CI', 'FORCE_COLOR', 'HOME', 'NODE_OPTIONS', 'NO_COLOR', 'PATH']);
     expect(env.HOME).toBe('/tmp/home');
+  });
+  it.each(['SN_SDK_USER_PWD', 'SN_SDK_SESSION_BEARER_TOKEN'])('refuses instance credentials: %s', (key) => {
+    expect(() => childEnv({ [key]: 'test-only' })).toThrow(/Refusing to pass/);
   });
   it('refuses anything else, such as a model key', () => {
     expect(() => childEnv({ ANTHROPIC_API_KEY: 'sk-ant-x' })).toThrow(/Refusing to pass ANTHROPIC_API_KEY/);

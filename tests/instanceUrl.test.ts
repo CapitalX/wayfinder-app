@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const { changeInstanceUrl, isPdiUrl, parseInstanceUrl } = await import('../src/server/instanceUrl.ts');
-const { authHeader, getToken, sdkAuthEnv, secureUrl } = await import('../src/server/sn.ts');
+const { authHeader, getToken, secureUrl } = await import('../src/server/sn.ts');
 const { audit, chats, instances } = await import('../src/server/db.ts');
 const { secrets } = await import('../src/server/secrets.ts');
 
@@ -45,7 +45,6 @@ describe('sign-in to an http address', () => {
     for (const auth of ['basic', 'client_credentials', 'oauth_user'] as const) {
       const inst = old(auth);
       await expect(authHeader(inst)).rejects.toThrow(/isn't https/);
-      await expect(sdkAuthEnv(inst)).rejects.toThrow(/isn't https/);
       if (auth !== 'basic') await expect(getToken(inst)).rejects.toThrow(/isn't https/);
     }
     expect(fetch).not.toHaveBeenCalled();

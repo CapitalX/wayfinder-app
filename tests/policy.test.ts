@@ -308,7 +308,8 @@ describe('Build mode installs', () => {
     const r = await answer(ctx.call('mcp__build__install_app', { app_id: app.scope, commit: 'evil' }), ctx.events, true);
     expect(r).toEqual({ behavior: 'allow', updatedInput: { app_id: app.scope, commit: 'abcdef1234567890' } });
     const card = ctx.events.find((e) => e.t === 'approval')!;
-    expect(card.input).toMatchObject({ app: 'Loans', summary: 'Loan tracker', tables: ['x_loan'], build: 'abcdef1', changes: 'First install of this app.' });
+    expect(card.input).toMatchObject({ app: 'Loans', summary: 'Loan tracker', tables: ['x_loan'], build: 'abcdef1', changes: 'First install of this app.',
+      install_gets: 'only the built package; your instance sign-in stays in the trusted uploader' });
   });
 
   it('auto-approves an install for the project in auto mode', async () => {

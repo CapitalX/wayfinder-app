@@ -31,7 +31,7 @@ describe.skipIf(!usable)('build sandbox (bubblewrap)', () => {
     expect(r.out).not.toMatch(/ANTHROPIC|PATH=/);
     expect(Number(r.out.trim().split('\n').at(-1))).toBeLessThan(10);
   });
-  it('has no network unless it is an install', async () => {
+  it('builds without network', async () => {
     const r = await sh(`${process.execPath} -e "fetch('http://1.1.1.1').then(()=>console.log('NET-OK'),e=>console.log('NET-FAIL',e.cause?.code??e.message))"`);
     expect(r.out).toContain('NET-FAIL');
   });
