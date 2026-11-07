@@ -1,21 +1,22 @@
-import { spawnSync, type ChildProcess } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, normalize } from 'node:path';
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import { APPS_DIR, CONFIG_DIR, DATA_DIR, envVar } from './config.ts';
+import { APPS_DIR, CONFIG_DIR, DATA_DIR } from './config.ts';
 import { apps, chats, fluentLessons, jobs, messages, type App, type Block, type Instance, type NoticeCard, type Project } from './db.ts';
 import { clearFacts } from './facts.ts';
-import { childEnv, insideApp, limited, spawnGroup, stopGroup } from './sandbox.ts';
+import { insideApp, spawnGroup, stopGroup } from './sandbox.ts';
+import { activeBackend, type SandboxBackend } from './sandbox/index.ts';
 import { DOC_ALIAS, docSection, parseBuild } from './fluent.ts';
 import { scaffold, sdkVersion } from './fluentCheck.ts';
 import { lessonKey, reviewLessons } from './fluentReview.ts';
 import { NAME_FIRST, nameConfirmed } from './appName.ts';
 import { afterInstall } from './followup.ts';
-import { getToken, sdkAuthEnv, sn, table } from './sn.ts';
+import { getToken, sn, table } from './sn.ts';
 import { SDK_DIR, BUNDLED_SDK, SDK_BIN, holdSdk, sdkRoot } from './sdkRoot.ts';
+import { PACK_SCRIPT, approvedBuild, discardBuild, recordBuild, uploadBuild } from './buildUpload.ts';
 import { secrets } from './secrets.ts';
 
 // Build mode: Claude writes a scoped app as ServiceNow SDK (Fluent) source, builds it here, and installs it on the PDI.
@@ -52,67 +53,55 @@ export type Spec = z.infer<typeof SPEC>;
 
 const appDir = (app: App) => join(APPS_DIR, app.scope);
 
-// Everything Claude's app code touches runs in a sandbox on Linux (bubblewrap): the home, data and config folders
+// Everything Claude's app code touches uses the active backend (sandbox/index.ts): bubblewrap on Linux unless off,
+// otherwise none (limits and an allowlisted environment only). With bubblewrap, the home, data and config folders
 // and the Wayfinder checkout are hidden, so the instance secrets, the app token and the Claude key are out of reach;
-// only the app's own folder is writable; there's no network except for installs. An install gets network plus the
-// instance sign-in it needs (a short-lived token, or the saved password for username/password connections, which the
-// approval card says). Every process gets an allowlisted environment, CPU/file limits, and is stopped with its whole
-// process group (sandbox.ts). WAYFINDER_SANDBOX=off turns bubblewrap off for local development on a Mac.
+// only the app's own folder is writable; building and packaging have no network or credentials. A separate trusted
+// uploader sends only the saved package, checked against its build commit and hash, with credentials held in memory.
+// It never executes the app folder. Every child gets an allowlisted environment, CPU/file limits, and is stopped with
+// its whole process group (sandbox.ts). WAYFINDER_SANDBOX=off turns bubblewrap off for local development on a Mac.
 export const UNSANDBOXED = 'This build ran without the bubblewrap sandbox (not Linux, or WAYFINDER_SANDBOX=off): the generated code could read files and use the network as the Wayfinder user. Tell the user once.';
-export const SANDBOX = process.platform === 'linux' && envVar('SANDBOX') !== 'off';
+const BACKEND = activeBackend();
+export const SANDBOX = BACKEND.name !== 'none';
 const NODE_DIR = dirname(dirname(realpathSync(process.execPath)));
 
-interface RunOpts { cwd: string; env?: Record<string, string>; timeoutMs?: number; write?: string[]; net?: boolean; jobId?: string; sdkRoot?: string; home?: string }
+interface RunOpts { cwd: string; env?: Record<string, string>; timeoutMs?: number; write?: string[]; net?: boolean; sdkRoot?: string; home?: string }
 
-export function command(cmd: string, args: string[], opts: RunOpts, sandboxed = SANDBOX): { cmd: string; args: string[]; env: Record<string, string> } {
-  const env = childEnv(opts.env, { PATH: process.env.PATH, HOME: opts.home ?? process.env.HOME }, sandboxed);
+export function command(cmd: string, args: string[], opts: RunOpts, backend: SandboxBackend = BACKEND): { cmd: string; args: string[]; env: Record<string, string> } {
+  const root = opts.sdkRoot ?? sdkRoot().path;
   const npmCli = join(dirname(process.execPath), 'npm');
-  const lim = cmd === 'npm' && existsSync(npmCli)
-    ? limited(process.execPath, [realpathSync(npmCli), ...args])
-    : limited(cmd, args);
-  if (!sandboxed) return { ...lim, env };
+  if (cmd === 'npm' && existsSync(npmCli)) { args = [realpathSync(npmCli), ...args]; cmd = process.execPath; }
   const hide = [homedir(), DATA_DIR, CONFIG_DIR].filter((d, i, all) => all.indexOf(d) === i && existsSync(d));
-  const bw = [
-    '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp',
-    ...hide.flatMap((d) => ['--tmpfs', d]),
-    // Wayfinder's own checkout (its source and config) is hidden too; only its node_modules are mapped in, read-only.
-    ...(process.cwd() !== '/' && !hide.some((d) => process.cwd().startsWith(d + '/')) ? ['--tmpfs', process.cwd()] : []),
-    '--ro-bind', NODE_DIR, NODE_DIR,
-    '--ro-bind', opts.sdkRoot ?? sdkRoot().path, join(APPS_DIR, 'node_modules'),
-    '--ro-bind', opts.sdkRoot ?? sdkRoot().path, opts.sdkRoot ?? sdkRoot().path,
-    ...(opts.write ?? []).flatMap((d) => ['--bind', d, d]),
-    '--unshare-all', ...(opts.net ? ['--share-net'] : []),
-    '--die-with-parent', '--new-session', '--chdir', opts.cwd, '--clearenv',
-    ...Object.entries(env).flatMap(([k, v]) => ['--setenv', k, v]),
-    lim.cmd, ...lim.args,
-  ];
-  return { cmd: 'bwrap', args: bw, env: {} };
+  return backend.wrap({ cmd, args, cwd: opts.cwd, write: opts.write ?? [], net: opts.net ?? false,
+    env: opts.env ?? {}, host: { PATH: process.env.PATH, HOME: opts.home ?? process.env.HOME }, hide,
+    checkout: process.cwd(), nodeDir: NODE_DIR,
+    nodeModules: { source: root, target: join(APPS_DIR, 'node_modules') }, read: [root],
+  });
 }
 
-export function run(cmd: string, args: string[], opts: RunOpts, sandboxed = SANDBOX): Promise<{ code: number; out: string }> {
+export function run(cmd: string, args: string[], opts: RunOpts, backend: SandboxBackend = BACKEND): Promise<{ code: number; out: string }> {
   return new Promise((resolve) => {
     let c: ReturnType<typeof command>;
-    try { c = command(cmd, args, opts, sandboxed); } catch (e) { resolve({ code: 1, out: (e as Error).message }); return; }
+    try { c = command(cmd, args, opts, backend); } catch (e) { resolve({ code: 1, out: (e as Error).message }); return; }
     const child = spawnGroup(c.cmd, c.args, { cwd: opts.cwd, env: c.env });
-    if (opts.jobId) runningInstalls.set(opts.jobId, child);
     let out = '';
     const add = (b: Buffer) => { out += b.toString(); if (out.length > 400_000) out = out.slice(-200_000); };
     child.stdout!.on('data', add);
     child.stderr!.on('data', add);
     const timer = setTimeout(() => { out += '\n(timed out)'; stopGroup(child); }, opts.timeoutMs ?? 180_000);
-    child.on('close', (code) => { if (opts.jobId) runningInstalls.delete(opts.jobId); clearTimeout(timer); resolve({ code: code ?? 1, out: out.replace(/\x1b\[[0-9;]*m/g, '') }); });
+    child.on('close', (code) => { clearTimeout(timer); resolve({ code: code ?? 1, out: out.replace(/\x1b\[[0-9;]*m/g, '') }); });
     child.on('error', (e) => { clearTimeout(timer); resolve({ code: 1, out: `${out}\n${e.message}` }); });
   });
 }
 
-// App installs run here, so they can be cancelled: the job id maps to the SDK process.
-const runningInstalls = new Map<string, ChildProcess>();
+// Cancellation covers every upload request and progress poll, without a generated-code child process.
+const runningInstalls = new Map<string, AbortController>();
 const cancelledJobs = new Set<string>();
 export function cancelInstall(jobId: string): boolean {
-  const child = runningInstalls.get(jobId);
-  if (!child) return false;
+  const controller = runningInstalls.get(jobId);
+  if (!controller) return false;
   cancelledJobs.add(jobId);
-  stopGroup(child);
+  controller.abort(new Error('Cancelled by you.'));
   return true;
 }
 
@@ -210,10 +199,8 @@ export async function buildState(app: App): Promise<{ commit: string | null; cle
 
 // Every app resolves the active SDK through one shared link; SDK leases prevent switching it during a build.
 export function ensureSdk(root = sdkRoot().path, linkApps = true) {
-  if (SANDBOX) {
-    const probe = spawnSync('bwrap', ['--version']);
-    if (probe.status !== 0) throw new Error('Builds run in a bubblewrap sandbox on Linux, and bwrap is not installed (sudo apt install bubblewrap).');
-  }
+  const available = BACKEND.available();
+  if (!available.ok) throw new Error(available.fix);
   if (!existsSync(SDK_BIN(root))) throw new Error(`The ServiceNow SDK isn't installed for Wayfinder (${SDK_BIN(root)}). Run npm install in the app folder.`);
   if (!linkApps) return;
   const link = join(APPS_DIR, 'node_modules'), want = root;
@@ -286,47 +273,48 @@ export function holdApp(app: Pick<App, 'id' | 'name'>, chatId: string, what: str
   return () => { if (!done) { done = true; writers.delete(app.id); } };
 }
 
-// `now-sdk install` runs here for a few minutes; it's tracked as a job and finishes with a note in the chat.
-// It ships exactly the approved build: the commit must still be HEAD with nothing changed since, and it isn't rebuilt.
-async function startInstall(inst: Instance, app: App, chatId: string, commit: string, release: () => void = () => {}) {
-  const state = await buildState(app);
-  if (state.commit !== commit || !state.clean) throw new Error('The app changed after the install was approved. Build it again and ask for a new approval.');
+// The policy checks source cleanliness before approval; the held writer prevents edits during upload.
+// This step reads only the trusted package snapshot, whose receipt binds its bytes to the approved commit.
+export async function startInstall(inst: Instance, app: App, chatId: string, commit: string, release: () => void = () => {}) {
+  if (apps.get(app.id)?.status !== 'built') throw new Error('Build the app again and ask for a new approval.');
+  const artifact = approvedBuild(app, commit);
   const job = jobs.add({ instance_id: inst.id, chat_id: chatId, kind: 'app_install', target: app.name, progress_id: '' });
   apps.update(app.id, { status: 'installing', instance_id: inst.id });
   const started = Date.now();
+  const controller = new AbortController();
+  runningInstalls.set(job.id, controller);
+  const timer = setTimeout(() => controller.abort(new Error('Install timed out after 15 minutes. Check the instance before retrying.')), 15 * 60_000);
   (async () => {
     jobs.update(job.id, { percent: 10, message: `Installing build ${commit.slice(0, 7)} on the PDI` });
-    const dir = appDir(app);
-    const res = await sdk(['install'], { cwd: dir, write: [dir], net: true, env: await sdkAuthEnv(inst), timeoutMs: 15 * 60_000, jobId: job.id });
-    return { ...res, step: 'install' };
-  })().then(({ code, out, step }) => {
-    const ok = code === 0;
+    // Also stop waiting if token resolution or an SDK request hasn't returned when cancelled.
+    await Promise.race([
+      uploadBuild(inst, artifact, controller.signal, (percent, message) => jobs.update(job.id, { percent, message })),
+      new Promise<never>((_, reject) => controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true })),
+    ]);
+  })().then(() => {
+    controller.signal.throwIfAborted();
     const minutes = Math.max(1, Math.round((Date.now() - started) / 60_000));
-    const tail = clip(out.trim(), 4000);
-    const cancelled = cancelledJobs.delete(job.id);
-    apps.update(app.id, { status: ok ? 'installed' : step === 'build' ? 'build_failed' : 'install_failed', last_output: cancelled ? 'Cancelled by you.' : tail, installed_commit: ok ? commit : undefined, installed_at: ok ? Date.now() : undefined });
-    if (cancelled) {
-      jobs.update(job.id, { status: 'cancelled', message: 'Cancelled by you', finished_at: Date.now() });
-      note(chatId, 'info', `${app.name}: install cancelled. The PDI may have part of it; install again to finish, or remove it.`);
-      return;
-    }
-    jobs.update(job.id, { status: ok ? 'successful' : 'failed', percent: ok ? 100 : 0, message: ok ? 'Installed' : tail.split('\n').filter(Boolean).slice(-2).join(' '), finished_at: Date.now() });
+    apps.update(app.id, { status: 'installed', last_output: 'Package uploaded and installation completed.', installed_commit: commit, installed_at: Date.now() });
+    jobs.update(job.id, { status: 'successful', percent: 100, message: 'Installed', finished_at: Date.now() });
     const link = appLink(inst, apps.get(app.id)!);
     const spec = readSpec(apps.get(app.id)!);
-    const card: NoticeCard = ok
-      ? { kind: 'install', ok, title: `${app.name} is installed`, stats: [{ label: 'Build', value: commit.slice(0, 7) }, { label: 'Took', value: `${minutes} min` }, { label: 'Tables', value: spec?.tables.length ?? 0 }, { label: 'Tests planned', value: spec?.tests?.length ?? 0 }],
-          links: [...(link ? [{ label: 'App record', href: link }] : []), ...(spec?.tables ?? []).slice(0, 4).map((t) => ({ label: `${t.label} list`, href: `${inst.url}/${t.name}_list.do` }))] }
-      : { kind: 'install', ok, title: `${app.name} failed to ${step}`, stats: [{ label: 'Took', value: `${minutes} min` }], items: tail.split('\n').filter(Boolean).slice(-4).map((l) => ({ label: l.slice(0, 160), status: 'fail' as const })) };
-    note(chatId, ok ? 'info' : 'error', ok
-      ? `${app.name} is installed on the PDI after ${minutes} min.${link ? ` Open it: ${link}` : ''}`
-      : `${app.name} failed to ${step} after ${minutes} min. Ask me to check the output and fix it.\n${tail.split('\n').slice(-6).join('\n')}`, card);
+    const card: NoticeCard = { kind: 'install', ok: true, title: `${app.name} is installed`, stats: [{ label: 'Build', value: commit.slice(0, 7) }, { label: 'Took', value: `${minutes} min` }, { label: 'Tables', value: spec?.tables.length ?? 0 }, { label: 'Tests planned', value: spec?.tests?.length ?? 0 }],
+      links: [...(link ? [{ label: 'App record', href: link }] : []), ...(spec?.tables ?? []).slice(0, 4).map((t) => ({ label: `${t.label} list`, href: `${inst.url}/${t.name}_list.do` }))] };
+    note(chatId, 'info', `${app.name} is installed on the PDI after ${minutes} min.${link ? ` Open it: ${link}` : ''}`, card);
     // Full loop: wake Pip to validate the app, run its tests and hand over review links.
-    if (ok) afterInstall(chatId, app.name);
+    afterInstall(chatId, app.name);
   }).catch((e) => {
+    const cancelled = cancelledJobs.delete(job.id);
     apps.update(app.id, { status: 'install_failed', last_output: (e as Error).message });
-    jobs.update(job.id, { status: 'failed', message: (e as Error).message, finished_at: Date.now() });
-    note(chatId, 'error', `${app.name} failed to install: ${(e as Error).message}`);
-  }).finally(release);
+    jobs.update(job.id, { status: cancelled ? 'cancelled' : 'failed', message: (e as Error).message, finished_at: Date.now() });
+    note(chatId, cancelled ? 'info' : 'error', cancelled
+      ? `${app.name}: install cancelled. The PDI may have part of it; install again to finish, or remove it.`
+      : `${app.name} failed to install: ${(e as Error).message}`, cancelled ? undefined : {
+        kind: 'install', ok: false, title: `${app.name} failed to install`,
+        stats: [{ label: 'Took', value: `${Math.max(1, Math.round((Date.now() - started) / 60_000))} min` }],
+        items: [{ label: (e as Error).message.slice(0, 160), status: 'fail' }],
+      });
+  }).finally(() => { clearTimeout(timer); runningInstalls.delete(job.id); release(); });
   return job;
 }
 
@@ -389,21 +377,34 @@ export async function buildScratch(files: { path: string; content: string }[], r
 }
 
 // One build: structured errors for Pip, the raw tail for the app card, and a commit for every good build.
-async function runBuild(app: App) {
+export async function runBuild(app: App) {
   const release = holdSdk();
   try {
-    ensureSdk();
     const dir = appDir(app);
+    discardBuild(app);
+    apps.update(app.id, { status: 'build_failed' });
+    ensureSdk();
+    rmSync(insideApp(dir, 'target'), { recursive: true, force: true });
     const started = Date.now();
     const res = await sdk(['build'], { cwd: dir, write: [dir] });
-    const ok = res.code === 0 && /Build completed successfully/i.test(res.out);
+    let ok = res.code === 0 && /Build completed successfully/i.test(res.out);
+    if (ok) {
+      const packed = await run(process.execPath, ['-e', PACK_SCRIPT, join(sdkRoot().path, '@servicenow', 'sdk-api')], { cwd: dir, write: [dir] });
+      res.out += '\n' + packed.out;
+      ok = packed.code === 0;
+    }
     const plain = res.out.replace(/\x1b\[[0-9;]*m/g, '');
     const { errors, warnings } = parseBuild(res.out);
     learnFromBuild(app, ok, errors, ok ? await git(dir, ['diff', 'HEAD', '--', 'src']).then((r) => r.out).catch(() => '') : '');
-    apps.update(app.id, { status: ok ? 'built' : 'build_failed', last_output: clip(plain, 4000) });
+    apps.update(app.id, { last_output: clip(plain, 4000) });
     if (ok) {
-      await git(dir, ['add', '-A']);
-      await git(dir, ['-c', 'user.name=Wayfinder', '-c', 'user.email=wayfinder@localhost', 'commit', '-q', '--allow-empty', '-m', `Build ${new Date().toISOString()}`]);
+      const paths = ['src', '@types', 'now.config.json', 'package.json', 'package-lock.json', 'tsconfig.json', '.gitignore', '.vscode/extensions.json', 'README.md'].filter((p) => existsSync(join(dir, p)));
+      const added = await git(dir, ['add', '--', ...paths]);
+      const committed = added.code === 0 && await git(dir, ['-c', 'user.name=Wayfinder', '-c', 'user.email=wayfinder@localhost', 'commit', '-q', '--allow-empty', '-m', `Build ${new Date().toISOString()}`]);
+      const state = await buildState(app);
+      if (!committed || committed.code !== 0 || !state.commit || !state.clean) throw new Error('Could not checkpoint the built package. Build again before installing.');
+      recordBuild(app, insideApp(dir, 'target'), state.commit);
+      apps.update(app.id, { status: 'built' });
     }
     return {
       ok, seconds: Math.round((Date.now() - started) / 100) / 10, sandboxed: SANDBOX, ...(SANDBOX ? {} : { warning: UNSANDBOXED }),
@@ -580,7 +581,6 @@ export function buildServer(inst: Instance | undefined, project: Project | undef
         commit: z.string().optional().describe('Filled in by the app when the user approves; leave it out.'),
       }, wrap(async ({ app_id, commit }: { app_id: string; commit?: string }) => {
         const i = needInstance();
-        ensureSdk();
         const app = getApp(app_id);
         if (!commit) throw new Error('No approved build. Ask again so the user can approve it.');
         const hold = holdApp(app, chatId, 'installing', true);

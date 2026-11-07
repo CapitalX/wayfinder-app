@@ -4,6 +4,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, readlinkSy
 import { join } from 'node:path';
 import { DATA_DIR } from '../src/server/config.ts';
 import { buildScratch, command, ensureSdk, run } from '../src/server/buildTools.ts';
+import { bubblewrap, none } from '../src/server/sandbox/index.ts';
 import { readSheet, sheetFiles } from '../src/server/fluentCheck.ts';
 import { checkSheet, sheetAddendum, sheetHealth } from '../src/server/fluentReview.ts';
 import { BUNDLED_SDK, SDK_BIN, SDK_DIR, activateSdk, bundledSdk, holdSdk, installedRoot, reconcileSdk, sdkRoot, sdkWhenIdle } from '../src/server/sdkRoot.ts';
@@ -96,6 +97,16 @@ describe('one SDK root', () => {
     expect(readlinkSync(join(DATA_DIR, 'apps/node_modules'))).toBe(candidate.path);
     expect(sdkRoot()).toMatchObject({ ...candidate, source: 'updated in app', previous: bundled });
     expect(SDK_BIN()).toBe(join(candidate.path, '.bin/now-sdk'));
+    const wrap = vi.fn(bubblewrap.wrap);
+    command(process.execPath, ['build'], { cwd: DATA_DIR }, { ...bubblewrap, wrap });
+    expect(wrap).toHaveBeenCalledWith(expect.objectContaining({
+      nodeModules: { source: candidate.path, target: join(DATA_DIR, 'apps/node_modules') }, read: [candidate.path],
+    }));
+    const checking = command(process.execPath, ['build'], { cwd: DATA_DIR, sdkRoot: BUNDLED_SDK }, { ...bubblewrap, wrap });
+    expect(wrap).toHaveBeenLastCalledWith(expect.objectContaining({
+      nodeModules: { source: BUNDLED_SDK, target: join(DATA_DIR, 'apps/node_modules') }, read: [BUNDLED_SDK],
+    }));
+    expect(checking.args).not.toContain('--share-net');
   });
   it('falls back with a doctor warning when a selected SDK is broken or missing', () => {
     const candidate = installFiles(version); activateSdk(candidate);
@@ -211,10 +222,10 @@ describe('install and cheat sheet gate', () => {
       expect(args).toEqual(expect.arrayContaining([`@servicenow/sdk@${version}`, `@servicenow/sdk-api@${version}`, '--ignore-scripts', '--no-audit', '--no-fund', '--save-exact']));
       expect(args.join(' ')).not.toMatch(/ignore-integrity|force|legacy-peer/);
       expect(opts).toMatchObject({ cwd: join(SDK_DIR, version), write: [join(SDK_DIR, version)], net: true, home: join(SDK_DIR, version, '.home') });
-      const child = command(cmd, args, opts, false);
+      const child = command(cmd, args, opts, none);
       expect(child.env.HOME).toBe(opts.home);
       expect(JSON.stringify(child.env)).not.toMatch(/must-not-reach-child|ANTHROPIC|NPM_TOKEN|SN_SDK_PASSWORD/);
-      const sandbox = command(cmd, args, opts, true);
+      const sandbox = command(cmd, args, opts, bubblewrap);
       expect(sandbox.args).toContain('--share-net');
       expect(JSON.stringify(sandbox)).not.toContain('must-not-reach-child');
       expect(passing).toHaveBeenCalledWith(sheetFiles(readSheet()), installedRoot(version));

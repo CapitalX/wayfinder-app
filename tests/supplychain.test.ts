@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 const workflows = readdirSync(new URL('../.github/workflows', import.meta.url)).map((f) => `.github/workflows/${f}`);
-const installers = ['ops/auto-deploy.sh', 'Dockerfile', 'README.md', 'docs/RUNBOOK.md', ...workflows];
+const installers = ['Dockerfile', 'README.md', 'docs/RUNBOOK.md', ...workflows];
 
 describe('installs and CI actions', () => {
   it.each(workflows)('%s uses only GitHub-hosted Linux for every job', (p) => {

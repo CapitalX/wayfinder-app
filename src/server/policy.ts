@@ -233,11 +233,10 @@ export function makeCanUseTool(chatId: string, instanceId: string | null, emit: 
       if (!commit || !clean || app.status !== 'built') return deny('There are changes since the last good build. Run build_app first, then ask to install again.');
       const preview = await installPreview(app, commit);
       const { commit: _ignored, ...rest } = input;
-      // The card also says what the install step receives and whether it runs sandboxed, so neither is a surprise.
-      const inst = instanceId ? instances.get(instanceId) : undefined;
+      // Credentials belong only to the trusted uploader; the warning still describes the preceding build.
       const card = { ...shown, build: commit.slice(0, 7), changes: preview.changes, risks: preview.risks,
-        install_gets: inst?.auth === 'basic' ? 'network access and your saved instance password' : 'network access and a short-lived instance token',
-        ...(SANDBOX ? {} : { sandbox: 'off: the install runs with the Wayfinder user\'s file access' }) };
+        install_gets: 'only the built package; your instance sign-in stays in the trusted uploader',
+        ...(SANDBOX ? {} : { sandbox: 'off: the build ran with the Wayfinder user\'s file access' }) };
       // Chat auto mode never covers a flagged install; full permissions still records the scan and exact build.
       if (autoAllowed(app) && !preview.risks.length) return auto(toolName, { ...rest, commit }, card);
       return ask(toolName, { ...rest, commit }, signal, card);

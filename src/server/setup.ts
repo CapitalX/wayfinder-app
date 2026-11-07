@@ -1,6 +1,6 @@
-import { spawnSync } from 'node:child_process';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { AGENT_CWD, envVar } from './config.ts';
+import { AGENT_CWD } from './config.ts';
+import { activeBackend } from './sandbox/index.ts';
 import { docsSource } from './docs.ts';
 import { instances, settings } from './db.ts';
 import { secrets } from './secrets.ts';
@@ -12,6 +12,7 @@ let lastTest: { ok: boolean; source?: string; error?: string; at: number } | nul
 
 export function setupState() {
   const s = settings.get();
+  const backend = activeBackend();
   return {
     done: s.setupDone || !!instances.active(),
     claude: { keySaved: !!secrets.anthropicKey(), envKey: !!process.env.ANTHROPIC_API_KEY, test: lastTest },
@@ -19,7 +20,7 @@ export function setupState() {
     extras: {
       docs: !!docsSource(),
       docsSource: docsSource(),
-      sandbox: process.platform === 'linux' && envVar('SANDBOX') !== 'off' && spawnSync('bwrap', ['--version']).status === 0,
+      sandbox: backend.name !== 'none' && backend.available().ok,
     },
   };
 }

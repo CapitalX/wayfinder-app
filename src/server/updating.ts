@@ -2,7 +2,7 @@ import { readFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { DATA_DIR } from './config.ts';
 
-// An update about to restart the app (ops/auto-deploy.sh, `wayfinder update`) first writes <data>/updating.json,
+// An update about to restart the app (`wayfinder update`) first writes <data>/updating.json,
 // {"until": <ms>}. While it's there, new answers don't start in a server that's about to stop: a send gets a 503 that
 // says so, and the page sends it again once the new server answers. The new server clears it when it starts; `until`
 // ends a window an update left behind.

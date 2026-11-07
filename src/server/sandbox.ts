@@ -5,10 +5,10 @@ import { dirname, isAbsolute, join, normalize, relative, sep } from 'node:path';
 // The pieces of the build runner that decide what a generated-code process gets: its environment, its limits, how
 // it's stopped, and which files it may touch. Kept here, free of app state, so each rule has a test.
 
-// Only these variables ever reach a build, git or install process. The model key, the app token and anything else
-// in Wayfinder's own environment never do; installs add only the instance sign-in the approval named.
+// Only these variables ever reach a build or git process. Uploads have no child process; instance sign-ins never
+// belong in a child environment.
 const BASE_ENV = { NO_COLOR: '1', FORCE_COLOR: '0', CI: '1' };
-const PASSABLE = /^(SN_SDK_[A-Z_]+|NODE_OPTIONS|GIT_[A-Z_]+)$/;
+const PASSABLE = /^(NODE_OPTIONS|GIT_[A-Z_]+)$/;
 
 export function childEnv(extra: Record<string, string> = {}, host: { PATH?: string; HOME?: string } = {}, sandboxed = true): Record<string, string> {
   const passed = Object.fromEntries(Object.entries(extra).filter(([k]) => PASSABLE.test(k)));
