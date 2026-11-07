@@ -1,14 +1,14 @@
-import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, normalize } from 'node:path';
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import { APPS_DIR, CONFIG_DIR, DATA_DIR, SDK_BIN, envVar } from './config.ts';
+import { APPS_DIR, CONFIG_DIR, DATA_DIR, SDK_BIN } from './config.ts';
 import { apps, chats, fluentLessons, jobs, messages, type App, type Block, type Instance, type NoticeCard, type Project } from './db.ts';
 import { clearFacts } from './facts.ts';
-import { childEnv, insideApp, limited, spawnGroup, stopGroup } from './sandbox.ts';
+import { insideApp, spawnGroup, stopGroup } from './sandbox.ts';
+import { activeBackend, type SandboxBackend } from './sandbox/index.ts';
 import { DOC_ALIAS, docSection, parseBuild } from './fluent.ts';
 import { scaffold, sdkVersion } from './fluentCheck.ts';
 import { lessonKey, reviewLessons } from './fluentReview.ts';
@@ -52,44 +52,34 @@ export type Spec = z.infer<typeof SPEC>;
 
 const appDir = (app: App) => join(APPS_DIR, app.scope);
 
-// Everything Claude's app code touches runs in a sandbox on Linux (bubblewrap): the home, data and config folders
+// Everything Claude's app code touches uses the active backend (sandbox/index.ts): bubblewrap on Linux unless off,
+// otherwise none (limits and an allowlisted environment only). With bubblewrap, the home, data and config folders
 // and the Wayfinder checkout are hidden, so the instance secrets, the app token and the Claude key are out of reach;
 // only the app's own folder is writable; building and packaging have no network or credentials. A separate trusted
 // uploader sends only the saved package, checked against its build commit and hash, with credentials held in memory.
 // It never executes the app folder. Every child gets an allowlisted environment, CPU/file limits, and is stopped with
 // its whole process group (sandbox.ts). WAYFINDER_SANDBOX=off turns bubblewrap off for local development on a Mac.
 export const UNSANDBOXED = 'This build ran without the bubblewrap sandbox (not Linux, or WAYFINDER_SANDBOX=off): the generated code could read files and use the network as the Wayfinder user. Tell the user once.';
-export const SANDBOX = process.platform === 'linux' && envVar('SANDBOX') !== 'off';
+const BACKEND = activeBackend();
+export const SANDBOX = BACKEND.name !== 'none';
 const SDK_ENTRY = join(APPS_DIR, 'node_modules', '@servicenow', 'sdk', 'bin', 'index.js');
 const NODE_DIR = dirname(dirname(realpathSync(process.execPath)));
 
 interface RunOpts { cwd: string; env?: Record<string, string>; timeoutMs?: number; write?: string[]; net?: boolean }
 
-export function command(cmd: string, args: string[], opts: RunOpts, sandboxed = SANDBOX): { cmd: string; args: string[]; env: Record<string, string> } {
-  const env = childEnv(opts.env, { PATH: process.env.PATH, HOME: process.env.HOME }, sandboxed);
-  const lim = limited(cmd, args);
-  if (!sandboxed) return { ...lim, env };
+export function command(cmd: string, args: string[], opts: RunOpts, backend: SandboxBackend = BACKEND): { cmd: string; args: string[]; env: Record<string, string> } {
   const hide = [homedir(), DATA_DIR, CONFIG_DIR].filter((d, i, all) => all.indexOf(d) === i && existsSync(d));
-  const bw = [
-    '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp',
-    ...hide.flatMap((d) => ['--tmpfs', d]),
-    // Wayfinder's own checkout (its source and config) is hidden too; only its node_modules are mapped in, read-only.
-    ...(process.cwd() !== '/' && !hide.some((d) => process.cwd().startsWith(d + '/')) ? ['--tmpfs', process.cwd()] : []),
-    '--ro-bind', NODE_DIR, NODE_DIR,
-    '--ro-bind', join(process.cwd(), 'node_modules'), join(APPS_DIR, 'node_modules'),
-    ...(opts.write ?? []).flatMap((d) => ['--bind', d, d]),
-    '--unshare-all', ...(opts.net ? ['--share-net'] : []),
-    '--die-with-parent', '--new-session', '--chdir', opts.cwd, '--clearenv',
-    ...Object.entries(env).flatMap(([k, v]) => ['--setenv', k, v]),
-    lim.cmd, ...lim.args,
-  ];
-  return { cmd: 'bwrap', args: bw, env: {} };
+  return backend.wrap({ cmd, args, cwd: opts.cwd, write: opts.write ?? [], net: opts.net ?? false,
+    env: opts.env ?? {}, host: { PATH: process.env.PATH, HOME: process.env.HOME }, hide,
+    checkout: process.cwd(), nodeDir: NODE_DIR,
+    nodeModules: { source: join(process.cwd(), 'node_modules'), target: join(APPS_DIR, 'node_modules') },
+  });
 }
 
-export function run(cmd: string, args: string[], opts: RunOpts, sandboxed = SANDBOX): Promise<{ code: number; out: string }> {
+export function run(cmd: string, args: string[], opts: RunOpts, backend: SandboxBackend = BACKEND): Promise<{ code: number; out: string }> {
   return new Promise((resolve) => {
     let c: ReturnType<typeof command>;
-    try { c = command(cmd, args, opts, sandboxed); } catch (e) { resolve({ code: 1, out: (e as Error).message }); return; }
+    try { c = command(cmd, args, opts, backend); } catch (e) { resolve({ code: 1, out: (e as Error).message }); return; }
     const child = spawnGroup(c.cmd, c.args, { cwd: opts.cwd, env: c.env });
     let out = '';
     const add = (b: Buffer) => { out += b.toString(); if (out.length > 400_000) out = out.slice(-200_000); };
@@ -201,10 +191,8 @@ export async function buildState(app: App): Promise<{ commit: string | null; cle
 // running build's node_modules: a deployment that runs each version from its own folder may later remove old ones, so a
 // link to another folder is moved here.
 export function ensureSdk() {
-  if (SANDBOX) {
-    const probe = spawnSync('bwrap', ['--version']);
-    if (probe.status !== 0) throw new Error('Builds run in a bubblewrap sandbox on Linux, and bwrap is not installed (sudo apt install bubblewrap).');
-  }
+  const available = BACKEND.available();
+  if (!available.ok) throw new Error(available.fix);
   if (!existsSync(SDK_BIN)) throw new Error(`The ServiceNow SDK isn't installed for Wayfinder (${SDK_BIN}). Run npm install in the app folder.`);
   const link = join(APPS_DIR, 'node_modules'), want = join(process.cwd(), 'node_modules');
   let ok = false;
