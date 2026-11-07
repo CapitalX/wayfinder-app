@@ -50,7 +50,6 @@ function usePhone() {
 export function App() {
   const phone = usePhone();
   const [authed, setAuthed] = useState<boolean | null>(null);
-  const [voice, setVoice] = useState(false);
   const [chats, setChats] = useState<Chat[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   // A link to a Settings section (#settings/<section>) opens Settings.
@@ -75,7 +74,7 @@ export function App() {
   const refreshAll = useCallback(() => { refreshChats(); refreshProjects(); refreshPending(); }, [refreshChats, refreshProjects, refreshPending]);
 
   useEffect(() => {
-    api<{ voice?: boolean }>('/session').then((r) => { setAuthed(true); setVoice(!!r.voice && !!navigator.mediaDevices); }).catch((e) => setAuthed(e instanceof ApiError && e.status === 401 ? false : true));
+    api('/session').then(() => setAuthed(true)).catch((e) => setAuthed(e instanceof ApiError && e.status === 401 ? false : true));
   }, []);
   useEffect(() => {
     if (!authed || view.kind !== 'home') return;
@@ -265,7 +264,7 @@ export function App() {
           <div className="main-view">
             {view.kind === 'chat' && (
               <ChatView key={view.id} chatId={view.id} projects={projects} onChanged={refreshAll} reloadKey={finishedKey}
-                autoSend={autoSend?.chatId === view.id ? autoSend.text : undefined} onAutoSent={() => setAutoSend(null)} voice={voice} />
+                autoSend={autoSend?.chatId === view.id ? autoSend.text : undefined} onAutoSent={() => setAutoSend(null)} />
             )}
             {view.kind === 'memory' && <MemoryView projects={projects} onChanged={refreshPending} />}
             {view.kind === 'project' && (

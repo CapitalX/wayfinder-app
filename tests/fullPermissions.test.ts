@@ -1,13 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
 // The real server routes and their login check, without a port: serve() hands over the app's fetch, and the
-// background starters (voice, monitor, job poller) stay off.
+// background starters (monitor, job poller) stay off.
 let fetchApp: (req: Request) => Promise<Response> = () => { throw new Error('server not started'); };
 vi.mock('@hono/node-server', async (orig) => ({
   ...(await orig<typeof import('@hono/node-server')>()),
   serve: ({ fetch }: { fetch: typeof fetchApp }) => { fetchApp = fetch; },
 }));
-vi.mock('../src/server/voice.ts', async (orig) => ({ ...(await orig<typeof import('../src/server/voice.ts')>()), warmVoice: () => {} }));
 vi.mock('../src/server/monitor.ts', async (orig) => ({ ...(await orig<typeof import('../src/server/monitor.ts')>()), startMonitor: () => {} }));
 vi.mock('../src/server/jobs.ts', async (orig) => ({ ...(await orig<typeof import('../src/server/jobs.ts')>()), startJobPoller: () => {} }));
 
@@ -15,10 +14,46 @@ await import('../src/server/main.ts');
 const { secrets } = await import('../src/server/secrets.ts');
 const { instances, audit, chats } = await import('../src/server/db.ts');
 const { applyEvent } = await import('../src/web/api.ts');
+const { MODES } = await import('../src/server/prompts.ts');
 const create = (kind: 'pdi' | 'other' = 'pdi') => instances.create({ name: 'Instance', url: kind === 'pdi' ? 'https://dev12345.service-now.com' : 'https://company.service-now.com', client_id: 'c', login_user: 'admin', kind, auth: 'client_credentials', auth_user: null });
 const put = (id: string, body: unknown, headers: Record<string, string> = {}) => fetchApp(new Request(`http://127.0.0.1/api/instances/${id}`, {
   method: 'PUT', headers: { authorization: `Bearer ${secrets.appToken()}`, 'content-type': 'application/json', origin: 'http://127.0.0.1', host: '127.0.0.1', ...headers }, body: JSON.stringify(body),
 }));
+
+describe('API request and capability contract', () => {
+  it('returns session modes and only the supported setup extras', async () => {
+    const headers = { authorization: `Bearer ${secrets.appToken()}` };
+    const session = await fetchApp(new Request('http://127.0.0.1/api/session', { headers }));
+    expect(session.status).toBe(200);
+    expect(await session.json()).toEqual({ ok: true, modes: MODES });
+    const setup = await fetchApp(new Request('http://127.0.0.1/api/setup', { headers }));
+    expect(setup.status).toBe(200);
+    expect(Object.keys((await setup.json()).extras).sort()).toEqual(['docs', 'docsSource', 'sandbox']);
+  });
+
+  it.each(['audio/wav', 'text/plain', 'multipart/form-data'])('rejects %s on all API writes', async (type) => {
+    for (const path of ['/api/login', '/api/no-such-route']) {
+      const res = await fetchApp(new Request(`http://127.0.0.1${path}`, {
+        method: 'POST', headers: { authorization: `Bearer ${secrets.appToken()}`, 'content-type': type }, body: 'data',
+      }));
+      expect(res.status).toBe(415);
+      expect(await res.json()).toEqual({ error: 'send JSON' });
+    }
+  });
+
+  it.each([false, true])('limits every API body to 4 MB (content-length: %s)', async (lengthHeader) => {
+    for (const [path, status] of [['/api/login', 401], ['/api/no-such-route', 404]] as const) {
+      for (const extra of [0, 1]) {
+        const body = '{}' + ' '.repeat(4 * 1024 * 1024 - 2 + extra);
+        const headers: Record<string, string> = { authorization: `Bearer ${secrets.appToken()}`, 'content-type': 'application/json' };
+        if (lengthHeader) headers['content-length'] = String(body.length);
+        const res = await fetchApp(new Request(`http://127.0.0.1${path}`, { method: 'POST', headers, body }));
+        expect(res.status).toBe(extra ? 413 : status);
+        if (extra) expect(await res.json()).toEqual({ error: 'That is too large to send.' });
+      }
+    }
+  });
+});
 
 describe('full permissions settings API', () => {
   it('persists an explicit boolean on a PDI, exposes it to the chat, and audits both directions', async () => {

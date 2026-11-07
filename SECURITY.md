@@ -10,6 +10,7 @@ the ⓘ panel).
 ## How Wayfinder is built to be safe
 - **Private by default.** It binds to 127.0.0.1 and requires a login token. Run it behind a private network; never
   expose it to the internet.
+  The login cookie is HTTPS-only except on this machine.
 - **Asks before changing anything.** Writes, scripts, plugin and app installs need an approval in the app. Auto mode
   is opt-in per chat, expires after 2 hours, works only on developer instances, and never covers removals or installs
   that a code scan flags. Every decision is audited.

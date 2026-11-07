@@ -24,7 +24,7 @@ function sealKey(create: boolean): string | null {
 }
 interface Sealed { sealed: 'aes-256-gcm'; iv: string; tag: string; data: string }
 function seal(text: string, hex: string): Sealed {
-  const iv = randomBytes(12), cipher = createCipheriv('aes-256-gcm', Buffer.from(hex, 'hex'), iv);
+  const iv = randomBytes(12), cipher = createCipheriv('aes-256-gcm', Buffer.from(hex, 'hex'), iv, { authTagLength: 16 });
   const data = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
   return { sealed: 'aes-256-gcm', iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), data: data.toString('base64') };
 }
@@ -35,8 +35,10 @@ function open(raw: string): { text: string; sealed: boolean } {
   const hex = sealKey(false);
   if (!hex) throw new Error(`The secrets file is sealed with a key kept in the ${STORE_NAME()}, which can't be reached right now (locked, or a session without it). Unlock it and start again, or restore ${SECRETS_FILE} from a plain copy.`);
   try {
-    const d = createDecipheriv('aes-256-gcm', Buffer.from(hex, 'hex'), Buffer.from(String(j.iv), 'base64'));
-    d.setAuthTag(Buffer.from(String(j.tag), 'base64'));
+    const tag = Buffer.from(String(j.tag), 'base64');
+    if (tag.length !== 16) throw new Error('Invalid authentication tag length');
+    const d = createDecipheriv('aes-256-gcm', Buffer.from(hex, 'hex'), Buffer.from(String(j.iv), 'base64'), { authTagLength: 16 });
+    d.setAuthTag(tag);
     return { text: Buffer.concat([d.update(Buffer.from(String(j.data), 'base64')), d.final()]).toString('utf8'), sealed: true };
   } catch {
     throw new Error(`The secrets file is sealed with a different key than the one in this computer's ${STORE_NAME()} (a copy from another machine?). Restore ${SECRETS_FILE} from a plain copy, or connect the instance again.`);

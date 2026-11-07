@@ -17,7 +17,6 @@ import { findFeatures } from './features.ts';
 import { scanConventions } from './conventions.ts';
 import { appLink, buildScratch, cancelInstall, diffBuilds, driftSince, failOrphanedInstalls, readSpec, restoreTo, timeline } from './buildTools.ts';
 import { clearTranscripts } from './transcripts.ts';
-import { transcribe, voiceAvailable, warmVoice } from './voice.ts';
 import { specHash } from './db.ts';
 import { announce, bus } from './events.ts';
 import { instancePulse, suggestionsFor } from './suggestions.ts';
@@ -49,6 +48,7 @@ import { backupUpdateSets } from './backup.ts';
 import { changeInstanceUrl, isPdiUrl, parseInstanceUrl } from './instanceUrl.ts';
 import { mergeDuplicates, reconnect, removeInstance } from './instanceRows.ts';
 import { CSP } from './csp.ts';
+import { secureCookie, securityHeaders } from './httpSecurity.ts';
 import { chatPlacement, choose, placementRules, resetRulesFile, rulesFile, saveRulesFile, serializeRules, settledNote, type Rule } from './placement.ts';
 import { afterPlacement } from './followup.ts';
 import { deleteRule, hub } from './memoryHub.ts';
@@ -59,11 +59,12 @@ import { scriptRunnerSettings } from './scriptRunnerSettings.ts';
 const app = new Hono();
 const COOKIE = 'snw_session';
 
+app.use('*', securityHeaders);
+
 const same = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
 // Request size limits, counted while the body streams in, so an oversized request is refused before it is all in
-// memory: 8 MB for a voice clip, 4 MB for everything else (saved mockups are the largest JSON).
-const voiceLimit = bodyLimit({ maxSize: 8_000_000, onError: (c) => c.json({ error: 'Keep voice messages under about four minutes.' }, 413) });
+// memory: 4 MB for every API route (saved mockups are the largest JSON).
 const jsonLimit = bodyLimit({ maxSize: 4 * 1024 * 1024, onError: (c) => c.json({ error: 'That is too large to send.' }, 413) });
 
 // Every /api route needs the app token (cookie from /api/login, or a bearer header).
@@ -75,8 +76,7 @@ app.use('/api/*', async (c, next) => {
     const host = c.req.header('x-forwarded-host') ?? c.req.header('host');
     if (origin && host && new URL(origin).host !== host) return c.json({ error: 'cross-origin request refused' }, 403);
     const type = c.req.header('content-type') ?? '';
-    const audioOk = c.req.path === '/api/transcribe' && type.startsWith('audio/wav');
-    if (!type.includes('application/json') && !audioOk) return c.json({ error: 'send JSON' }, 415);
+    if (!type.includes('application/json')) return c.json({ error: 'send JSON' }, 415);
   }
   if (c.req.path === '/api/login') return next();
   // The OAuth redirect back from the instance: a top-level navigation from another site, so the SameSite=Strict
@@ -88,30 +88,22 @@ app.use('/api/*', async (c, next) => {
   if (!same(token, secrets.appToken())) return c.json({ error: 'login required' }, 401);
   return next();
 });
-app.use('/api/*', (c, next) => (c.req.path === '/api/transcribe' ? voiceLimit : jsonLimit)(c, next));
+app.use('/api/*', jsonLimit);
 
 app.post('/api/login', async (c) => {
   const { token } = await c.req.json<{ token?: string }>();
   if (!token || !same(token, secrets.appToken())) return c.json({ error: 'wrong token' }, 401);
-  const secure = c.req.header('x-forwarded-proto') === 'https' || c.req.url.startsWith('https:');
+  const secure = secureCookie(c.req);
   setCookie(c, COOKIE, token, { httpOnly: true, sameSite: 'Strict', secure, path: '/', maxAge: 60 * 60 * 24 * 90 });
   return c.json({ ok: true });
 });
 
-app.get('/api/session', (c) => c.json({ ok: true, modes: MODES, voice: voiceAvailable() }));
-
-// Voice: a short WAV clip in, text out. Transcribed on this host; the audio is deleted straight after.
-app.post('/api/transcribe', async (c) => {
-  const buf = Buffer.from(await c.req.arrayBuffer());
-  if (buf.length < 1000) return c.json({ error: 'That clip is empty.' }, 400);
-  if (buf.length > 8_000_000) return c.json({ error: 'Keep voice messages under about four minutes.' }, 413);
-  try { return c.json({ text: await transcribe(buf) }); } catch (e) { return c.json({ error: (e as Error).message }, 502); }
-});
+app.get('/api/session', (c) => c.json({ ok: true, modes: MODES }));
 
 // Rotating the app token signs every browser out (the cookie is the token); this browser gets the new one.
 app.post('/api/token/rotate', (c) => {
   const token = secrets.rotateAppToken();
-  const secure = c.req.header('x-forwarded-proto') === 'https' || c.req.url.startsWith('https:');
+  const secure = secureCookie(c.req);
   setCookie(c, COOKIE, token, { httpOnly: true, sameSite: 'Strict', secure, path: '/', maxAge: 60 * 60 * 24 * 90 });
   audit.add(null, null, 'app token', {}, 'rotated (all other browsers signed out)');
   return c.json({ token });
@@ -993,7 +985,6 @@ failOrphanedInstalls();
 mergeDuplicates();
 noteCutOff();
 clearUpdating();   // this server is the new one, so any update's restart window is over
-warmVoice();
 // A sealed secrets file whose key can't be reached (keychain.ts) stops the start here, with the reason, not at the first request.
 try { secrets.appToken(); } catch (e) { console.error((e as Error).message); process.exit(1); }
 startMonitor();

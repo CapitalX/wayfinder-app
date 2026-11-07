@@ -90,8 +90,8 @@ Wayfinder works within the connected account's roles. `admin` and `sn_cicd.sys_c
 setup, plugin installs and app builds; fewer roles limit what it can do. Company and vendor instances require explicit
 opt-in and cannot use chat Auto mode or Full permissions.
 
-Optional: download ServiceNow docs in Settings → Pip (needs git and about 1.5 GB), install `bubblewrap` on Linux
-for isolated builds, or set up local voice transcription. See the [runbook](docs/RUNBOOK.md).
+Optional: download ServiceNow docs in Settings → Pip (needs git and about 1.5 GB), or install `bubblewrap` on Linux
+for isolated builds. See the [runbook](docs/RUNBOOK.md).
 
 ## Data and updates
 

@@ -34,7 +34,7 @@ SQLite through `node:sqlite`. The brain is the Claude Agent SDK (`query()`), run
 - `sn.ts` sign-in methods (client_credentials, basic, oauth_user with PKCE); `access.ts` access profile;
   `buildTools.ts` Build mode (Fluent apps in `apps/<scope>`, one git repo each, bubblewrap sandbox on Linux);
   `pdiTools.ts`, `insights.ts` (Insights: changes, new log errors) + `impact.ts` (what references a table, field, script include or ACL) + `ownership.ts` (which scope owns what), `features.ts`, `showme.ts`, `projectTools.ts` (saved items, memory gates, board), `jobs.ts`,
-  `events.ts`, `voice.ts`, `monitor.ts`, `backup.ts`, `config.ts` (env and paths), `secrets.ts`, `token.ts`.
+  `events.ts`, `monitor.ts`, `backup.ts`, `config.ts` (env and paths), `secrets.ts`, `token.ts`.
 - `docsIndex.ts` (pure: parse, chunk, index a docs clone, search), `docsLocal.ts` (setup/update, the in-process `sndocs`
   tool), `docsDb.ts`, `docsCli.ts` (`wayfinder docs`), `docs.ts` (`docsSource()`: a docs server if its token file exists, else the local index).
 - `db.ts`: all tables. New columns via `hasColumn` + `ALTER`; never drop or rewrite existing data.
@@ -48,9 +48,9 @@ SQLite through `node:sqlite`. The brain is the Claude Agent SDK (`query()`), run
 
 ## Web map (`src/web`)
 - `App.tsx` (rail, list, topbar, work area, ⌘K, home), `components/HomeStart.tsx` (home box, mode buttons, Auto via `route.ts`), `components/ChatView.tsx` (Pip seat, memory clouds,
-  pills, approval dial, build steps, queue/interrupt/mic), `components/Pip.tsx` (states and presence).
+  pills, approval dial, build steps, queue/interrupt), `components/Pip.tsx` (states and presence).
 - Panels: `FeaturesPanel`, `BoardPanel`, `MemoryView`, `ProjectView`, `AppCards`, `SettingsView`, `WhatsNew`.
-- Plumbing: `live.ts` (SSE hook), `work.ts`, `useVoice.ts`, `api.ts`. Design tokens live in `styles.css`.
+- Plumbing: `live.ts` (SSE hook), `work.ts`, `api.ts`. Design tokens live in `styles.css`.
 
 **The UI framework is fixed:** icon rail · list · conversation · one work area on the right; Pip by the composer;
 smart pills above the box; the approval dial; memory clouds; ⌘K. New features slot into it; don't redesign it.

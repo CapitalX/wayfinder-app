@@ -8,7 +8,7 @@ interface Setup {
   done: boolean;
   claude: { keySaved: boolean; envKey: boolean; test: { ok: boolean; source?: string; error?: string } | null };
   instance: boolean;
-  extras: { docs: boolean; docsSource: 'server' | 'local' | null; voice: boolean; sandbox: boolean };
+  extras: { docs: boolean; docsSource: 'server' | 'local' | null; sandbox: boolean };
 }
 
 // First run: three steps, each with a clear state and one obvious action. Nothing here is required twice.
@@ -58,7 +58,6 @@ export function SetupView({ onConnect, onDone }: { onConnect: () => void; onDone
           <li className={s.extras.sandbox ? 'on' : ''}>{s.extras.sandbox ? '✓' : '○'} <b>Build sandbox</b>: generated apps build in isolation. {s.extras.sandbox ? 'On.' : 'Linux only: install bubblewrap.'}</li>
           <li className={s.extras.docs ? 'on' : ''}>{s.extras.docs ? '✓' : '○'} <b>Cited docs</b>: ServiceNow's official docs, so answers link their sources. {s.extras.docsSource === 'server' ? 'Using your docs server.' : s.extras.docsSource === 'local' ? 'On this machine.' : 'Not set up yet.'}
             {s.extras.docsSource !== 'server' && <DocsDownload />}</li>
-          <li className={s.extras.voice ? 'on' : ''}>{s.extras.voice ? '✓' : '○'} <b>Voice</b>: talk to Pip, transcribed on this machine. {s.extras.voice ? 'Ready.' : 'See the README to set it up.'}</li>
         </ul>
       </section>
 

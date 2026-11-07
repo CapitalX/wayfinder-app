@@ -182,7 +182,6 @@ in a clean `ubuntu:24.04` container (`--host`: the same on this machine, with an
 | "Sign-in to the instance failed (401)" | Wrong or rotated client secret; Settings → Instance → reconnect. For "Sign in as me", use *Sign in again*. |
 | Pip says it can't install plugins | The account lacks `admin` or `sn_cicd.sys_ci_automation`; see Settings → Access. |
 | Build fails with "bwrap is not installed" | `sudo apt install bubblewrap`, or `WAYFINDER_SANDBOX=off` for local development only. |
-| Mic button missing | Voice isn't set up (see the README's optional extras), or the page isn't served over https. |
 | Answers feel slow | Settings → Speed shows time to first sign of life and the slowest tools. |
 
 ## Backups
