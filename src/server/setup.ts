@@ -5,7 +5,6 @@ import { docsSource } from './docs.ts';
 import { instances, settings } from './db.ts';
 import { secrets } from './secrets.ts';
 import { claudeEnv, claudeSource } from './claudeAccess.ts';
-import { voiceAvailable } from './voice.ts';
 
 // First-run setup: is Claude reachable, is an instance connected, which optional extras are on.
 
@@ -20,7 +19,6 @@ export function setupState() {
     extras: {
       docs: !!docsSource(),
       docsSource: docsSource(),
-      voice: voiceAvailable(),
       sandbox: process.platform === 'linux' && envVar('SANDBOX') !== 'off' && spawnSync('bwrap', ['--version']).status === 0,
     },
   };

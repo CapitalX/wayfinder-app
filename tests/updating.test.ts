@@ -9,7 +9,6 @@ vi.mock('@hono/node-server', async (orig) => ({
   ...(await orig<typeof import('@hono/node-server')>()),
   serve: ({ fetch }: { fetch: typeof fetchApp }) => { fetchApp = fetch; },
 }));
-vi.mock('../src/server/voice.ts', async (orig) => ({ ...(await orig<typeof import('../src/server/voice.ts')>()), warmVoice: () => {} }));
 vi.mock('../src/server/monitor.ts', async (orig) => ({ ...(await orig<typeof import('../src/server/monitor.ts')>()), startMonitor: () => {} }));
 vi.mock('../src/server/jobs.ts', async (orig) => ({ ...(await orig<typeof import('../src/server/jobs.ts')>()), startJobPoller: () => {} }));
 

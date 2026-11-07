@@ -11,7 +11,7 @@ your instance credentials, chats and apps live on your machine; it does not mean
 | **Allowlisted web domains** | A page fetch or search, only for domains on your allowlist and never private addresses. | When Pip looks something up. |
 | **GitHub** (`github.com/ServiceNow/ServiceNowDocs`) | Nothing about you: a git download of ServiceNow's public docs. | When you set up or update local docs. |
 
-Wayfinder itself sends no telemetry anywhere. Voice is transcribed on this machine; the audio never leaves it.
+Wayfinder itself sends no telemetry anywhere.
 
 ## How long Anthropic keeps it
 That depends on **your agreement with Anthropic** (the API key's account), not on

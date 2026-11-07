@@ -1,13 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
 // The real server routes and their login check, without a port: serve() hands over the app's fetch, and the
-// background starters (voice, monitor, job poller) stay off.
+// background starters (monitor, job poller) stay off.
 let fetchApp: (req: Request) => Promise<Response> = () => { throw new Error('server not started'); };
 vi.mock('@hono/node-server', async (orig) => ({
   ...(await orig<typeof import('@hono/node-server')>()),
   serve: ({ fetch }: { fetch: typeof fetchApp }) => { fetchApp = fetch; },
 }));
-vi.mock('../src/server/voice.ts', async (orig) => ({ ...(await orig<typeof import('../src/server/voice.ts')>()), warmVoice: () => {} }));
 vi.mock('../src/server/monitor.ts', async (orig) => ({ ...(await orig<typeof import('../src/server/monitor.ts')>()), startMonitor: () => {} }));
 vi.mock('../src/server/jobs.ts', async (orig) => ({ ...(await orig<typeof import('../src/server/jobs.ts')>()), startJobPoller: () => {} }));
 

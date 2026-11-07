@@ -11,7 +11,6 @@ Wayfinder builds on the following third-party software, installed as dependencie
 - ServiceNow SDK (@servicenow/sdk, @servicenow/sdk-api), © ServiceNow, Inc. MIT License.
 - Geist and Geist Mono typefaces (https://vercel.com/font), © The Geist Project Authors. SIL Open Font License 1.1;
   included in src/web/fonts with its license.
-- faster-whisper (https://github.com/SYSTRAN/faster-whisper), MIT License, used for optional local speech-to-text.
 - ServiceNow documentation (https://github.com/ServiceNow/ServiceNowDocs), © ServiceNow, Inc., Apache License 2.0.
   Not shipped with Wayfinder: `wayfinder docs setup` downloads it from that repository and builds a search index on
   the user's own machine.

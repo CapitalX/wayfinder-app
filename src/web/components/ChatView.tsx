@@ -10,7 +10,6 @@ import { useWork } from '../work.ts';
 import { GhostLayer, acceptGhost, ghostFor } from './Ghost.tsx';
 import { useLive } from '../live.ts';
 import { ICON } from './icons.tsx';
-import { soundsUnfinished, useVoice } from '../useVoice.ts';
 
 // What Pip is thinking, in a few words: the step it's on, or how it feels.
 function thoughtFor(state: PipState, draft: Block[] | null): string {
@@ -52,8 +51,8 @@ function pipFor(draft: Block[] | null, messages: Message[], typing: boolean, jus
 
 interface ChatData { chat: Chat; instance: Instance | null; running: boolean; messages: Message[]; apps: { id: string; name: string; status: string }[] }
 
-export function ChatView({ chatId, projects, onChanged, reloadKey, autoSend, onAutoSent, voice }: {
-  chatId: string; projects: Project[]; onChanged: () => void; reloadKey: string; autoSend?: string; onAutoSent?: () => void; voice?: boolean;
+export function ChatView({ chatId, projects, onChanged, reloadKey, autoSend, onAutoSent }: {
+  chatId: string; projects: Project[]; onChanged: () => void; reloadKey: string; autoSend?: string; onAutoSent?: () => void;
 }) {
   const [data, setData] = useState<ChatData | null>(null);
   const [draft, setDraft] = useState<Block[] | null>(null);
@@ -109,7 +108,6 @@ export function ChatView({ chatId, projects, onChanged, reloadKey, autoSend, onA
   const [queued, setQueuedState] = useState<string | null>(null);
   const queuedRef = useRef<string | null>(null);
   const setQueued = (t: string | null) => { queuedRef.current = t; setQueuedState(t); };
-  const [keepGoing, setKeepGoing] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const stick = useRef(true);
@@ -171,7 +169,6 @@ export function ChatView({ chatId, projects, onChanged, reloadKey, autoSend, onA
     const text = (override ?? input).trim();
     if (!text) return;
     if (override === undefined) setInput('');
-    setKeepGoing(false);
     if (busy) { setQueued(text); return; }
     setError('');
     setPendingUser(text);
@@ -212,17 +209,6 @@ export function ChatView({ chatId, projects, onChanged, reloadKey, autoSend, onA
     if (next) { setQueued(null); submit(next); }
     return ok;
   }
-
-  const mic = useVoice(
-    (text) => {
-      // A trailing "and…" waits for the rest: it goes into the box and the next recording adds to it.
-      const combined = `${input.trim() ? input.trim() + ' ' : ''}${text}`;
-      if (soundsUnfinished(text)) { setInput(combined); setKeepGoing(true); return; }
-      setInput('');
-      submit(combined);
-    },
-    (msg) => setError(msg),
-  );
 
   const patch = async (body: { mode?: string; project_id?: string | null; auto_mode?: string; auto_app_id?: string }) => {
     await api(`/chats/${chatId}`, { method: 'PATCH', body });
@@ -369,29 +355,22 @@ export function ChatView({ chatId, projects, onChanged, reloadKey, autoSend, onA
                 rows={1}
               />
             </div>
-            {voice && mic.state !== 'idle'
-              ? (mic.state === 'recording'
-                  ? <button className="mic-btn rec" onClick={mic.stop} title="Stop and send" aria-label="Stop recording"><span className="mic-level" style={{ transform: `scale(${1 + Math.min(mic.level * 3, 0.8)})` }} />{mic.seconds}s · done</button>
-                  : <button className="mic-btn" disabled>Hearing…</button>)
-              : busy && queued
-                ? <button className="send-now" onClick={() => api(`/chats/${chatId}/stop`, { method: 'POST' })} title="Stop this answer and send the waiting message now">Send now {ICON.send}</button>
-                : busy && !input.trim()
-                  ? <button className="round stop" onClick={() => api(`/chats/${chatId}/stop`, { method: 'POST' })} title="Stop this answer" aria-label="Stop">{ICON.stop}</button>
-                  : input.trim()
-                    ? <button className={`round primary ${busy ? 'queue' : ''}`} onClick={() => submit()} title={busy ? 'Sends when this answer ends' : 'Send'} aria-label={busy ? 'Queue' : 'Send'}>{ICON.send}</button>
-                    : voice
-                      ? <button className="round mic" onClick={mic.start} title="Talk" aria-label="Start voice message">{ICON.mic}</button>
-                      : <button className="round primary" disabled aria-label="Send">{ICON.send}</button>}
+            {busy && queued
+              ? <button className="send-now" onClick={() => api(`/chats/${chatId}/stop`, { method: 'POST' })} title="Stop this answer and send the waiting message now">Send now {ICON.send}</button>
+              : busy && !input.trim()
+                ? <button className="round stop" onClick={() => api(`/chats/${chatId}/stop`, { method: 'POST' })} title="Stop this answer" aria-label="Stop">{ICON.stop}</button>
+                : input.trim()
+                  ? <button className={`round primary ${busy ? 'queue' : ''}`} onClick={() => submit()} title={busy ? 'Sends when this answer ends' : 'Send'} aria-label={busy ? 'Queue' : 'Send'}>{ICON.send}</button>
+                  : <button className="round primary" disabled aria-label="Send">{ICON.send}</button>}
           </div>
           {queued && (
             <p className="queued small"><span className="auto-chip">waiting</span> {queued.length > 90 ? queued.slice(0, 90) + '…' : queued}
               <button className="link" onClick={() => { setInput(queued); setQueued(null); }}>Edit</button>
               <button className="link" onClick={() => setQueued(null)}>Drop</button></p>
           )}
-          {keepGoing && <p className="muted small">Keep going… tap the mic to add the rest, or press Send.</p>}
           <div className="composer-foot">
             {(fullPermissions || apps.length > 0 || data.chat.project_id) ? dial : <span />}
-            <span className="muted tiny">Enter to send{busy ? ' (waits its turn)' : ''} · Shift+Enter new line{voice ? ' · mic for voice' : ''}</span>
+            <span className="muted tiny">Enter to send{busy ? ' (waits its turn)' : ''} · Shift+Enter new line</span>
           </div>
         </div>
       </div>
