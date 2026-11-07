@@ -92,6 +92,7 @@ opt-in and cannot use chat Auto mode or Full permissions.
 
 Optional: download ServiceNow docs in Settings → Pip (needs git and about 1.5 GB), or install `bubblewrap` on Linux
 for isolated builds. See the [runbook](docs/RUNBOOK.md).
+ServiceNow SDK updates are offered in the app and checked against the Fluent cheat sheet before Build mode switches.
 
 ## Data and updates
 

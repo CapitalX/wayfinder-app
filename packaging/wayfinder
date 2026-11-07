@@ -378,6 +378,8 @@ cmd_doctor() {
   if [ -d "$APP/node_modules/tsx" ] && [ -f "$APP/dist/web/index.html" ]; then ok "app files complete"
   else bad "app files incomplete in $APP" "reinstall: curl -fsSL $BASE/latest/download/install.sh | sh"; fi
 
+  if [ -n "$NODE" ] && [ -f "$APP/src/server/sdkDoctor.ts" ]; then app src/server/sdkDoctor.ts; fi
+
   private_dir data "$DATA"
   private_dir settings "$CONFIG"
   if [ -f "$CONFIG/secrets.json" ]; then
