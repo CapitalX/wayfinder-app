@@ -18,7 +18,8 @@ the ⓘ panel).
   make are refused before they're sent, and refusals from the instance are remembered.
 - **Contained web access.** Web fetch is limited to allowlisted domains and refuses private, loopback, link-local and
   internal network addresses after DNS resolution.
-- **Sandboxed builds (Linux).** Generated app code runs under bubblewrap: home, data, config and the Wayfinder
+- **Sandboxed builds (Linux).** Generated app code uses one sandbox interface, with bubblewrap on Linux unless
+  `WAYFINDER_SANDBOX=off`, and an unsandboxed backend elsewhere. Under bubblewrap, home, data, config and the Wayfinder
   checkout are hidden, host processes are invisible, only the app's own folder is writable, and builds have no network.
   Every build process gets an allowlisted environment (never the Claude key or the app token), CPU, file-size and
   open-file limits plus a capped Node heap, and is stopped with its whole process group (SIGKILL after a grace period).
