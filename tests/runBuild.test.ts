@@ -10,7 +10,7 @@ vi.mock('../src/server/sandbox.ts', async (original) => {
 });
 const { spawnGroup } = await import('../src/server/sandbox.ts');
 const { spawnGroup: realSpawn } = await vi.importActual<typeof import('../src/server/sandbox.ts')>('../src/server/sandbox.ts');
-const { runBuild, buildState } = await import('../src/server/buildTools.ts');
+const { runBuild, buildState, SANDBOX, UNSANDBOXED } = await import('../src/server/buildTools.ts');
 const { approvedBuild, recordBuild } = await import('../src/server/buildUpload.ts');
 const { APPS_DIR, DATA_DIR, SDK_BIN } = await import('../src/server/config.ts');
 const { apps } = await import('../src/server/db.ts');
@@ -119,7 +119,8 @@ describe('runBuild', () => {
       }
       return update(id, patch);
     });
-    expect(await runBuild(app)).toMatchObject({ ok: true });
+    expect(SANDBOX).toBe(false);
+    expect(await runBuild(app)).toMatchObject({ ok: true, sandboxed: false, warning: UNSANDBOXED });
     expect(statuses).toEqual(['build_failed', 'built']);
     expect(apps.get(app.id)?.status).toBe('built');
     expect(await buildState(app)).toEqual({ commit: git(dir, ['rev-parse', 'HEAD']), clean: true });

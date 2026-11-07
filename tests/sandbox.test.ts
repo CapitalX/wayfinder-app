@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 const { childEnv, insideApp, LIMITS } = await import('../src/server/sandbox.ts');
 const { run } = await import('../src/server/buildTools.ts');
+const { none } = await import('../src/server/sandbox/index.ts');
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'wf-sandbox-'));
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -28,20 +29,20 @@ describe('run (without bubblewrap)', () => {
   it("never hands the server's own secrets to the process", async () => {
     process.env.ANTHROPIC_API_KEY = 'sk-ant-should-not-leak';
     process.env.WAYFINDER_APP_TOKEN_TEST = 'nope';
-    const r = await run('/usr/bin/env', [], { cwd: tmp() }, false);
+    const r = await run('/usr/bin/env', [], { cwd: tmp() }, none);
     delete process.env.ANTHROPIC_API_KEY; delete process.env.WAYFINDER_APP_TOKEN_TEST;
     expect(r.code).toBe(0);
     expect(r.out).not.toMatch(/ANTHROPIC|sk-ant|WAYFINDER_APP_TOKEN_TEST/);
     expect(r.out).toMatch(/NODE_OPTIONS=--max-old-space-size=2048/);
   });
   it('applies CPU, file-size and open-file limits', async () => {
-    const r = await run('/bin/sh', ['-c', 'ulimit -t; ulimit -f; ulimit -n'], { cwd: tmp() }, false);
+    const r = await run('/bin/sh', ['-c', 'ulimit -t; ulimit -f; ulimit -n'], { cwd: tmp() }, none);
     expect(r.out.trim().split(/\s+/)).toEqual([String(LIMITS.cpuSeconds), String(LIMITS.fileBlocks512), String(LIMITS.openFiles)]);
   });
   it('stops the whole process group on timeout, including children that ignore SIGTERM', async () => {
     const dir = tmp();
     const script = `(trap '' TERM; exec sleep 300) & echo $! > ${dir}/stubborn; sleep 300 & echo $! > ${dir}/plain; wait`;
-    const r = await run('/bin/sh', ['-c', script], { cwd: dir, timeoutMs: 600 }, false);
+    const r = await run('/bin/sh', ['-c', script], { cwd: dir, timeoutMs: 600 }, none);
     expect(r.out).toMatch(/timed out/);
     const plain = Number(readFileSync(join(dir, 'plain'), 'utf8'));
     const stubborn = Number(readFileSync(join(dir, 'stubborn'), 'utf8'));

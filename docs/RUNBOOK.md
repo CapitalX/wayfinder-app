@@ -208,10 +208,14 @@ screenshot at a few named points, to `$UI_OUT` or a temp folder it prints.
 
 
 ### Testing the build sandbox
-`tests/sandbox.test.ts` runs everywhere (environment allowlist, limits, process-group stop, path guard).
-`tests/sandbox.linux.test.ts` needs Linux with bubblewrap able to create namespaces and is skipped elsewhere; the
-Linux checks run it when namespaces are available. It checks that a build can't read the secrets file, data, home, the checkout or
-host processes, has no network, and changes only its app folder.
+`src/server/sandbox/index.ts` selects bubblewrap on Linux unless `WAYFINDER_SANDBOX=off`, and the unsandboxed backend
+elsewhere. `tests/sandbox.test.ts` runs everywhere (environment allowlist, limits, process-group stop, path guard).
+`tests/sandboxBackend.test.ts` checks selection and compares bubblewrap's complete command against arguments captured
+before the interface extraction, with network access on and off.
+`tests/sandboxEscape.shared.ts` holds the shared escape cases for real backends. `tests/sandbox.linux.test.ts` runs
+them against bubblewrap on Linux when it can create namespaces and skips elsewhere; the Linux CI job runs them when
+bwrap is usable there. They check that a build can't read the secrets file, data, a fake home's SSH files, the checkout
+or host processes and environment, has no network without permission, and changes only its app folder on disk.
 
 ## Secrets and the computer's credential store
 
