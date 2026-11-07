@@ -6,6 +6,7 @@ import { ProjectView } from './components/ProjectView.tsx';
 import { Login } from './components/Login.tsx';
 import { StatusBanner } from './components/StatusBanner.tsx';
 import { DocsPicker, InsightsButton, UpdateSetPill, type Pulse } from './components/HeaderTools.tsx';
+import { SdkUpdatePill } from './components/SdkUpdate.tsx';
 import { JobsBar } from './components/JobsBar.tsx';
 import { Pip, setPresence } from './components/Pip.tsx';
 import { WhatsNew } from './components/WhatsNew.tsx';
@@ -255,6 +256,7 @@ export function App() {
             </button>}
             <StatusBanner status={status} onRecheck={() => api<Status>('/status/check', { method: 'POST' }).then(setStatus)} onSettings={() => setView({ kind: 'settings' })} />
             <JobsBar jobs={jobs} />
+            <SdkUpdatePill />
             {!phone && <div className="head-tools">
               <DocsPicker instanceKey={status?.instanceId} />
               <UpdateSetPill instanceKey={status?.state === 'awake' ? (status?.name ?? status?.instanceId) : undefined} onOpenChat={(id) => go({ kind: 'chat', id })} />

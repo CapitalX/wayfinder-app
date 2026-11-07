@@ -1255,3 +1255,6 @@ pre.script, .approval pre.script {
 .file-fold { margin-top: 10px; }
 .file-fold > summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; }
 @media (max-width: 640px) { .rule-grid { grid-template-columns: 1fr; } .skill-row { flex-wrap: wrap; } .rule-cond select { max-width: calc(100vw - 140px); } }
+
+.sdk-update { padding: 8px; overflow-wrap: anywhere; }
+.sdk-update .inline-form { flex-wrap: wrap; }

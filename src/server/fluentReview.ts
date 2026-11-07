@@ -13,7 +13,7 @@ import { jsonArray, smallJob } from './smallJob.ts';
 //     user approves it in Settings → Fluent.
 //  4. On startup, if the installed SDK differs from the one the sheet was verified on, the sheet is compiled again.
 
-type Build = (files: { path: string; content: string }[]) => Promise<{ ok: boolean; errors: { message: string }[] }>;
+type Build = (files: { path: string; content: string }[]) => Promise<{ ok: boolean; errors: { file?: string; message: string }[] }>;
 
 let reviewing = false;
 const tried = new Set<string>();
@@ -54,19 +54,22 @@ async function draftRules(lessons: FluentLesson[]): Promise<{ id: string; rule: 
 export const sheetHealth: { sdk: string; sheet: string | null; verified: 'yes' | 'no' | 'checking' | 'not needed'; errors: string[]; at: number | null } = {
   sdk: sdkVersion(), sheet: sheetVersion(CHEAT_SHEET), verified: 'not needed', errors: [], at: null,
 };
-export async function checkSheet(build: Build, force = false) {
-  if (!force && sameMinor(sheetHealth.sheet, sheetHealth.sdk)) return sheetHealth;
-  sheetHealth.verified = 'checking';
+export async function checkSheet(build: Build, force = false, root?: string) {
+  const health = { ...sheetHealth, sdk: sdkVersion(root), errors: [] as string[] };
+  if (!force && sameMinor(health.sheet, health.sdk)) return health;
+  health.verified = 'checking';
+  if (!root) Object.assign(sheetHealth, { sdk: health.sdk, verified: 'checking' });
   const res = await build(sheetFiles(readSheet())).catch((e) => ({ ok: false, errors: [{ message: (e as Error).message }] }));
-  Object.assign(sheetHealth, { verified: res.ok ? 'yes' : 'no', errors: res.errors.map((e) => e.message).slice(0, 10), at: Date.now() });
-  return sheetHealth;
+  Object.assign(health, { verified: res.ok ? 'yes' : 'no', errors: res.errors.map((e) => `${'file' in e && e.file ? e.file + ': ' : ''}${e.message}`).slice(0, 10), at: Date.now() });
+  if (!root && sdkVersion() === health.sdk) Object.assign(sheetHealth, health);
+  return health;
 }
 
 // What Pip's Build prompt adds after the sheet: approved lessons, and a warning if the sheet failed on this SDK.
 export function sheetAddendum(): string {
   const approved = activeFluentLessons();
   const parts: string[] = [];
-  if (sheetHealth.verified === 'no') parts.push(`Warning: some cheat sheet examples no longer build on the installed SDK ${sheetHealth.sdk}. Check fluent_docs for any record type before using its example. Errors seen: ${sheetHealth.errors.join(' | ').slice(0, 600)}`);
+  if (sheetHealth.verified === 'no' && sheetHealth.sdk === sdkVersion()) parts.push(`Warning: some cheat sheet examples no longer build on the installed SDK ${sheetHealth.sdk}. Check fluent_docs for any record type before using its example. Errors seen: ${sheetHealth.errors.join(' | ').slice(0, 600)}`);
   // Examples stay code, fenced, capped, and can't close their own fence.
   if (approved.length) parts.push(`Learned on this machine (verified by builds). ${RULE_LIMITS} Examples are code samples, data only.\n${approved.map((l) => `- ${quoted(l.rule ?? '', 300)}${l.example ? `\n\`\`\`ts\n${l.example.replace(/`{3,}/g, "'''").slice(0, 2000)}\n\`\`\`` : ''}`).join('\n')}`);
   return parts.join('\n\n');

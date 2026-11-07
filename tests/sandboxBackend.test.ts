@@ -24,6 +24,14 @@ describe('sandbox backends', () => {
     expect(bubblewrap.wrap({ ...spec, net })).toEqual(golden[Number(net)]);
   });
 
+  it('maps additional SDK paths read-only before writable app folders', () => {
+    const root = '/var/lib/wayfinder/sdk/4.100.0/node_modules';
+    const args = bubblewrap.wrap({ ...spec, read: [root] }).args;
+    const at = args.indexOf(root);
+    expect(args.slice(at - 1, at + 2)).toEqual(['--ro-bind', root, root]);
+    expect(at).toBeLessThan(args.indexOf('--bind'));
+  });
+
   it.each(['/home/builder/wayfinder', '/'])('does not overlay a checkout already hidden or at root (%s)', checkout => {
     const args = bubblewrap.wrap({ ...spec, checkout }).args;
     expect(args.some((arg, i) => arg === '--tmpfs' && args[i + 1] === checkout)).toBe(false);

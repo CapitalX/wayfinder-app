@@ -31,6 +31,12 @@ the ⓘ panel).
   and a 15-minute timeout abort upload requests and progress polling; an instance may still finish work already received.
 - **Secrets stay local.** Instance credentials live in a mode-600 file on the host; "Sign in as me" stores only a
   refresh token. Same-origin JSON-only writes protect against cross-site requests.
+- **Checked SDK updates.** Only a confirmed instance admin can download, override a failed check, or roll back an SDK.
+  Offers stay within the bundled SDK's major version and wait seven days after publication. Downloads run through
+  the build sandbox with network access, an empty npm configuration and an allowlisted environment containing no
+  credentials. SDK and API versions are exact, npm integrity checks stay on, and install scripts are disabled.
+  The existing macOS and Docker sandbox limits below also apply. A failed cheat sheet check keeps the current SDK
+  unless the admin explicitly chooses Use anyway; missing or broken SDK folders fall back to the bundled SDK.
 
 ## Known limits
 - Self-hosted is not local processing: chats and tool results go to Anthropic. See [docs/DATA.md](docs/DATA.md).

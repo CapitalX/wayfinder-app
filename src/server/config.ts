@@ -31,7 +31,6 @@ export const DOCS_REPO = envVar('DOCS_REPO') ?? 'https://github.com/ServiceNow/S
 // Build mode: each generated app is a ServiceNow SDK (Fluent) project in its own folder here.
 // The folder's node_modules points at the app's own copy of the SDK, so every app resolves it.
 export const APPS_DIR = join(DATA_DIR, 'apps');
-export const SDK_BIN = process.env.NOW_SDK_BIN ?? join(process.cwd(), 'node_modules', '.bin', 'now-sdk');
 
 export const DEFAULT_ALLOWLIST = ['servicenow.com', 'developer.servicenow.com'];
 

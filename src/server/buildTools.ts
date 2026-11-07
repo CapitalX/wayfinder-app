@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { dirname, join, normalize } from 'node:path';
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import { APPS_DIR, CONFIG_DIR, DATA_DIR, SDK_BIN } from './config.ts';
+import { APPS_DIR, CONFIG_DIR, DATA_DIR } from './config.ts';
 import { apps, chats, fluentLessons, jobs, messages, type App, type Block, type Instance, type NoticeCard, type Project } from './db.ts';
 import { clearFacts } from './facts.ts';
 import { insideApp, spawnGroup, stopGroup } from './sandbox.ts';
@@ -15,6 +15,7 @@ import { lessonKey, reviewLessons } from './fluentReview.ts';
 import { NAME_FIRST, nameConfirmed } from './appName.ts';
 import { afterInstall } from './followup.ts';
 import { getToken, sn, table } from './sn.ts';
+import { SDK_DIR, BUNDLED_SDK, SDK_BIN, holdSdk, sdkRoot } from './sdkRoot.ts';
 import { PACK_SCRIPT, approvedBuild, discardBuild, recordBuild, uploadBuild } from './buildUpload.ts';
 import { secrets } from './secrets.ts';
 
@@ -62,17 +63,19 @@ const appDir = (app: App) => join(APPS_DIR, app.scope);
 export const UNSANDBOXED = 'This build ran without the bubblewrap sandbox (not Linux, or WAYFINDER_SANDBOX=off): the generated code could read files and use the network as the Wayfinder user. Tell the user once.';
 const BACKEND = activeBackend();
 export const SANDBOX = BACKEND.name !== 'none';
-const SDK_ENTRY = join(APPS_DIR, 'node_modules', '@servicenow', 'sdk', 'bin', 'index.js');
 const NODE_DIR = dirname(dirname(realpathSync(process.execPath)));
 
-interface RunOpts { cwd: string; env?: Record<string, string>; timeoutMs?: number; write?: string[]; net?: boolean }
+interface RunOpts { cwd: string; env?: Record<string, string>; timeoutMs?: number; write?: string[]; net?: boolean; sdkRoot?: string; home?: string }
 
 export function command(cmd: string, args: string[], opts: RunOpts, backend: SandboxBackend = BACKEND): { cmd: string; args: string[]; env: Record<string, string> } {
+  const root = opts.sdkRoot ?? sdkRoot().path;
+  const npmCli = join(dirname(process.execPath), 'npm');
+  if (cmd === 'npm' && existsSync(npmCli)) { args = [realpathSync(npmCli), ...args]; cmd = process.execPath; }
   const hide = [homedir(), DATA_DIR, CONFIG_DIR].filter((d, i, all) => all.indexOf(d) === i && existsSync(d));
   return backend.wrap({ cmd, args, cwd: opts.cwd, write: opts.write ?? [], net: opts.net ?? false,
-    env: opts.env ?? {}, host: { PATH: process.env.PATH, HOME: process.env.HOME }, hide,
+    env: opts.env ?? {}, host: { PATH: process.env.PATH, HOME: opts.home ?? process.env.HOME }, hide,
     checkout: process.cwd(), nodeDir: NODE_DIR,
-    nodeModules: { source: join(process.cwd(), 'node_modules'), target: join(APPS_DIR, 'node_modules') },
+    nodeModules: { source: root, target: join(APPS_DIR, 'node_modules') }, read: [root],
   });
 }
 
@@ -103,8 +106,15 @@ export function cancelInstall(jobId: string): boolean {
 }
 
 // The ServiceNow SDK CLI, run with this server's node so it works inside the sandbox.
-const sdk = (args: string[], opts: RunOpts) =>
-  SANDBOX ? run(process.execPath, [SDK_ENTRY, ...args], opts) : run(SDK_BIN, args, opts);
+const sdk = async (args: string[], opts: RunOpts) => {
+  const release = holdSdk(), root = opts.sdkRoot ?? sdkRoot().path;
+  try {
+    ensureSdk(root, !opts.sdkRoot);
+    return await (SANDBOX
+      ? run(process.execPath, [join(root, '@servicenow/sdk/bin/index.js'), ...args], { ...opts, sdkRoot: root })
+      : run(SDK_BIN(root), args, { ...opts, sdkRoot: root }));
+  } finally { release(); }
+};
 const git = (dir: string, args: string[]) => run('git', args, { cwd: dir, write: [dir] });
 
 // What an install would ship: the last good build's commit, and whether anything changed since.
@@ -187,18 +197,18 @@ export async function buildState(app: App): Promise<{ commit: string | null; cle
   return { commit: head.code === 0 ? head.out.trim() : null, clean: status.code === 0 && status.out.trim() === '' };
 }
 
-// Every app folder sits under APPS_DIR, so one node_modules link there lets each app resolve the SDK. It points at the
-// running build's node_modules: a deployment that runs each version from its own folder may later remove old ones, so a
-// link to another folder is moved here.
-export function ensureSdk() {
+// Every app resolves the active SDK through one shared link; SDK leases prevent switching it during a build.
+export function ensureSdk(root = sdkRoot().path, linkApps = true) {
   const available = BACKEND.available();
   if (!available.ok) throw new Error(available.fix);
-  if (!existsSync(SDK_BIN)) throw new Error(`The ServiceNow SDK isn't installed for Wayfinder (${SDK_BIN}). Run npm install in the app folder.`);
-  const link = join(APPS_DIR, 'node_modules'), want = join(process.cwd(), 'node_modules');
+  if (!existsSync(SDK_BIN(root))) throw new Error(`The ServiceNow SDK isn't installed for Wayfinder (${SDK_BIN(root)}). Run npm install in the app folder.`);
+  if (!linkApps) return;
+  const link = join(APPS_DIR, 'node_modules'), want = root;
+  if (existsSync(link) && !lstatSync(link).isSymbolicLink()) throw new Error('The apps/node_modules folder must be a link to the active SDK. Move that folder aside, then retry.');
   let ok = false;
   try {
     const st = lstatSync(link);
-    ok = st.isSymbolicLink() ? readlinkSync(link) === want : existsSync(join(link, '@servicenow', 'sdk'));
+    ok = st.isSymbolicLink() && readlinkSync(link) === want;
     if (!ok && st.isSymbolicLink()) rmSync(link);
   } catch { ok = false; }
   if (!ok) { mkdirSync(APPS_DIR, { recursive: true }); symlinkSync(want, link, 'dir'); }
@@ -330,7 +340,7 @@ async function startRemove(inst: Instance, app: App, chatId: string) {
   return jobs.add({ instance_id: inst.id, chat_id: chatId, kind: 'app_remove', target: app.name, progress_id: progressId });
 }
 
-// SDK docs don't change while the server runs; caching them keeps repeat builds fast.
+// Cache SDK docs by version, so switching SDKs also switches the reference Pip reads.
 const docsCache = new Map<string, string>();
 
 // The cheat sheet's learning loop: errors it had no hint for are recorded; when the app next builds green, the diff
@@ -352,49 +362,57 @@ function learnFromBuild(app: App, ok: boolean, errors: ReturnType<typeof parseBu
 
 // Compile files as a throwaway app (scope x_acme_loan), in the same sandbox as real builds. Used to verify the cheat
 // sheet and any rule drafted from a lesson before it's offered.
-export async function buildScratch(files: { path: string; content: string }[]) {
-  ensureSdk();
-  const dir = scaffold(join(APPS_DIR, '.checks'), join(process.cwd(), 'node_modules'), files);
+export async function buildScratch(files: { path: string; content: string }[], root = sdkRoot().path) {
+  const release = holdSdk();
+  let dir: string | undefined;
   try {
-    const res = await sdk(['build'], { cwd: dir, write: [dir] });
-    return { ok: res.code === 0 && /Build completed successfully/i.test(res.out), errors: parseBuild(res.out).errors };
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+    ensureSdk(root, false);
+    const parent = root === BUNDLED_SDK ? join(APPS_DIR, '.checks') : join(SDK_DIR, sdkVersion(root), '.checks');
+    dir = scaffold(parent, root, files);
+    const res = await sdk(['build'], { cwd: dir, write: [dir], sdkRoot: root });
+    const ok = res.code === 0 && /Build completed successfully/i.test(res.out);
+    const errors = parseBuild(res.out).errors;
+    return { ok, errors: !ok && !errors.length ? [{ message: clip(res.out.trim(), 2000) || 'The SDK build failed.' }] : errors };
+  } finally { if (dir) rmSync(dir, { recursive: true, force: true }); release(); }
 }
 
 // One build: structured errors for Pip, the raw tail for the app card, and a commit for every good build.
 export async function runBuild(app: App) {
-  const dir = appDir(app);
-  discardBuild(app);
-  apps.update(app.id, { status: 'build_failed' });
-  ensureSdk();
-  rmSync(insideApp(dir, 'target'), { recursive: true, force: true });
-  const started = Date.now();
-  const res = await sdk(['build'], { cwd: dir, write: [dir] });
-  let ok = res.code === 0 && /Build completed successfully/i.test(res.out);
-  if (ok) {
-    const packed = await run(process.execPath, ['-e', PACK_SCRIPT, join(SANDBOX ? APPS_DIR : process.cwd(), 'node_modules', '@servicenow', 'sdk-api')], { cwd: dir, write: [dir] });
-    res.out += '\n' + packed.out;
-    ok = packed.code === 0;
-  }
-  const plain = res.out.replace(/\x1b\[[0-9;]*m/g, '');
-  const { errors, warnings } = parseBuild(res.out);
-  learnFromBuild(app, ok, errors, ok ? await git(dir, ['diff', 'HEAD', '--', 'src']).then((r) => r.out).catch(() => '') : '');
-  apps.update(app.id, { last_output: clip(plain, 4000) });
-  if (ok) {
-    const paths = ['src', '@types', 'now.config.json', 'package.json', 'package-lock.json', 'tsconfig.json', '.gitignore', '.vscode/extensions.json', 'README.md'].filter((p) => existsSync(join(dir, p)));
-    const added = await git(dir, ['add', '--', ...paths]);
-    const committed = added.code === 0 && await git(dir, ['-c', 'user.name=Wayfinder', '-c', 'user.email=wayfinder@localhost', 'commit', '-q', '--allow-empty', '-m', `Build ${new Date().toISOString()}`]);
-    const state = await buildState(app);
-    if (!committed || committed.code !== 0 || !state.commit || !state.clean) throw new Error('Could not checkpoint the built package. Build again before installing.');
-    recordBuild(app, insideApp(dir, 'target'), state.commit);
-    apps.update(app.id, { status: 'built' });
-  }
-  return {
-    ok, seconds: Math.round((Date.now() - started) / 100) / 10, sandboxed: SANDBOX, ...(SANDBOX ? {} : { warning: UNSANDBOXED }),
-    ...(errors.length ? { errors } : {}), ...(warnings.length ? { warnings } : {}),
-    // Anything the parser couldn't read (a crash, a missing tool) still reaches Pip, from the start of the output.
-    ...(!ok && !errors.length ? { output: plain.slice(0, 6000) } : {}),
-  };
+  const release = holdSdk();
+  try {
+    const dir = appDir(app);
+    discardBuild(app);
+    apps.update(app.id, { status: 'build_failed' });
+    ensureSdk();
+    rmSync(insideApp(dir, 'target'), { recursive: true, force: true });
+    const started = Date.now();
+    const res = await sdk(['build'], { cwd: dir, write: [dir] });
+    let ok = res.code === 0 && /Build completed successfully/i.test(res.out);
+    if (ok) {
+      const packed = await run(process.execPath, ['-e', PACK_SCRIPT, join(sdkRoot().path, '@servicenow', 'sdk-api')], { cwd: dir, write: [dir] });
+      res.out += '\n' + packed.out;
+      ok = packed.code === 0;
+    }
+    const plain = res.out.replace(/\x1b\[[0-9;]*m/g, '');
+    const { errors, warnings } = parseBuild(res.out);
+    learnFromBuild(app, ok, errors, ok ? await git(dir, ['diff', 'HEAD', '--', 'src']).then((r) => r.out).catch(() => '') : '');
+    apps.update(app.id, { last_output: clip(plain, 4000) });
+    if (ok) {
+      const paths = ['src', '@types', 'now.config.json', 'package.json', 'package-lock.json', 'tsconfig.json', '.gitignore', '.vscode/extensions.json', 'README.md'].filter((p) => existsSync(join(dir, p)));
+      const added = await git(dir, ['add', '--', ...paths]);
+      const committed = added.code === 0 && await git(dir, ['-c', 'user.name=Wayfinder', '-c', 'user.email=wayfinder@localhost', 'commit', '-q', '--allow-empty', '-m', `Build ${new Date().toISOString()}`]);
+      const state = await buildState(app);
+      if (!committed || committed.code !== 0 || !state.commit || !state.clean) throw new Error('Could not checkpoint the built package. Build again before installing.');
+      recordBuild(app, insideApp(dir, 'target'), state.commit);
+      apps.update(app.id, { status: 'built' });
+    }
+    return {
+      ok, seconds: Math.round((Date.now() - started) / 100) / 10, sandboxed: SANDBOX, ...(SANDBOX ? {} : { warning: UNSANDBOXED }),
+      ...(errors.length ? { errors } : {}), ...(warnings.length ? { warnings } : {}),
+      // Anything the parser couldn't read (a crash, a missing tool) still reaches Pip, from the start of the output.
+      ...(!ok && !errors.length ? { output: plain.slice(0, 6000) } : {}),
+    };
+  } finally { release(); }
 }
 
 export function buildServer(inst: Instance | undefined, project: Project | undefined, chatId: string) {
@@ -426,7 +444,7 @@ export function buildServer(inst: Instance | undefined, project: Project | undef
       }, wrap(async ({ topic, section, list }: { topic?: string; section?: string; list: boolean }) => {
         ensureSdk();
         const t = topic ? DOC_ALIAS[topic.toLowerCase().trim()] ?? topic : undefined;
-        const key = `${t ?? ''}|${list}`;
+        const key = `${sdkVersion()}|${t ?? ''}|${list}`;
         let page = docsCache.get(key);
         if (!page) {
           const args = ['explain', ...(t ? [t] : []), ...(list ? ['--list'] : []), '--format', 'raw'];

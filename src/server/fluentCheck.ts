@@ -1,13 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { sdkRoot, sdkVersionAt } from './sdkRoot.ts';
 
 // Keeps the Fluent cheat sheet honest: its examples are compiled together as a real app (in CI, after an SDK upgrade,
 // and before any learned rule is offered), so the prompt never teaches code that no longer builds.
 
-export const sdkVersion = (): string => {
-  try { return JSON.parse(readFileSync(join(process.cwd(), 'node_modules', '@servicenow', 'sdk', 'package.json'), 'utf8')).version; } catch { return 'unknown'; }
-};
+export const sdkVersion = (root = sdkRoot().path): string => sdkVersionAt(root);
 export const sheetVersion = (sheet: string) => /ServiceNow SDK (\d+\.\d+\.\d+)/.exec(sheet)?.[1] ?? null;
 export const sameMinor = (a: string | null, b: string | null) => !!a && !!b && a.split('.').slice(0, 2).join('.') === b.split('.').slice(0, 2).join('.');
 

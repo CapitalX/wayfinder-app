@@ -6,6 +6,7 @@ export interface SandboxSpec {
   args: string[];
   cwd: string;
   write: string[];
+  read?: string[];
   net: boolean;
   env: Record<string, string>;
   host?: { PATH?: string; HOME?: string };
@@ -36,6 +37,7 @@ export const bubblewrap: SandboxBackend = {
       ...(spec.checkout !== '/' && !spec.hide.some(d => spec.checkout.startsWith(d + '/')) ? ['--tmpfs', spec.checkout] : []),
       '--ro-bind', spec.nodeDir, spec.nodeDir,
       '--ro-bind', spec.nodeModules.source, spec.nodeModules.target,
+      ...(spec.read ?? []).flatMap(d => ['--ro-bind', d, d]),
       ...spec.write.flatMap(d => ['--bind', d, d]),
       '--unshare-all', ...(spec.net ? ['--share-net'] : []),
       '--die-with-parent', '--new-session', '--chdir', spec.cwd, '--clearenv',

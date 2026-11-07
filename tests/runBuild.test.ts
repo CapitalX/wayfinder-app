@@ -12,12 +12,13 @@ const { spawnGroup } = await import('../src/server/sandbox.ts');
 const { spawnGroup: realSpawn } = await vi.importActual<typeof import('../src/server/sandbox.ts')>('../src/server/sandbox.ts');
 const { runBuild, buildState, SANDBOX, UNSANDBOXED } = await import('../src/server/buildTools.ts');
 const { approvedBuild, recordBuild } = await import('../src/server/buildUpload.ts');
-const { APPS_DIR, DATA_DIR, SDK_BIN } = await import('../src/server/config.ts');
+const { APPS_DIR, DATA_DIR } = await import('../src/server/config.ts');
+const { SDK_BIN, SDK_DIR, activateSdk, installedRoot, sdkRoot, sdkWhenIdle } = await import('../src/server/sdkRoot.ts');
 const { apps } = await import('../src/server/db.ts');
 
 const previousCommit = 'a'.repeat(40);
 const git = (dir: string, args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
-function setup(options: { buildFails?: boolean; packFails?: boolean; checkpointFails?: 'add' | 'commit'; invalidPackage?: boolean; dirty?: boolean } = {}) {
+function setup(options: { buildFails?: boolean; packFails?: boolean; checkpointFails?: 'add' | 'commit'; invalidPackage?: boolean; dirty?: boolean; onPack?: () => void } = {}) {
   const app = apps.add({ project_id: null, chat_id: null, instance_id: null, name: 'Loans', scope: 'x_acme_' + Math.random().toString(16).slice(2, 8), scope_id: 'b'.repeat(32), spec: '{}' });
   const dir = join(APPS_DIR, app.scope), target = join(dir, 'target');
   mkdirSync(join(dir, 'src'), { recursive: true });
@@ -39,7 +40,7 @@ function setup(options: { buildFails?: boolean; packFails?: boolean; checkpointF
   recordBuild(app, target, previousCommit);
   apps.update(app.id, { status: 'built' });
   vi.mocked(spawnGroup).mockImplementation((cmd, args, opts) => {
-    const sdk = args.includes(SDK_BIN), pack = args.includes('-e');
+    const sdk = args.includes(SDK_BIN()), pack = args.includes('-e');
     const gitAt = args.indexOf('git'), gitArgs = gitAt < 0 ? [] : args.slice(gitAt + 1);
     const failCheckpoint = options.checkpointFails && gitArgs.includes(options.checkpointFails);
     if (!sdk && !pack && !failCheckpoint) return realSpawn(cmd, args, opts);
@@ -53,6 +54,7 @@ function setup(options: { buildFails?: boolean; packFails?: boolean; checkpointF
         code = options.buildFails ? 1 : 0;
         out = code ? 'Compiler failed' : 'Build completed successfully';
       } else if (pack) {
+        options.onPack?.();
         code = options.packFails ? 1 : 0;
         out = code ? 'Packaging failed' : 'Package ready';
         mkdirSync(target);
@@ -69,9 +71,34 @@ function setup(options: { buildFails?: boolean; packFails?: boolean; checkpointF
   });
   return { app, dir, artifact: join(DATA_DIR, 'build-output', app.id) };
 }
-afterEach(() => { vi.restoreAllMocks(); vi.mocked(spawnGroup).mockReset(); });
+afterEach(() => { vi.restoreAllMocks(); vi.mocked(spawnGroup).mockReset(); rmSync(SDK_DIR, { recursive: true, force: true }); });
 
 describe('runBuild', () => {
+  it('uses the selected SDK for build and packaging and holds it through artifact recording', async () => {
+    const version = `${sdkRoot().version.split('.')[0]}.100.0`, root = installedRoot(version);
+    for (const name of ['sdk', 'sdk-api']) {
+      mkdirSync(join(root, '@servicenow', name), { recursive: true });
+      writeFileSync(join(root, '@servicenow', name, 'package.json'), JSON.stringify({ version }));
+    }
+    mkdirSync(join(root, '@servicenow/sdk/bin'), { recursive: true });
+    writeFileSync(join(root, '@servicenow/sdk/bin/index.js'), '');
+    mkdirSync(join(root, '.bin'));
+    writeFileSync(join(root, '.bin/now-sdk'), '');
+    activateSdk({ version, path: root });
+    let idle = false;
+    let finished!: Promise<void>;
+    const { app } = setup({ onPack: () => {
+      finished = sdkWhenIdle(() => { idle = true; expect(apps.get(app.id)?.status).toBe('built'); });
+      expect(idle).toBe(false);
+    } });
+    expect(await runBuild(app)).toMatchObject({ ok: true });
+    await finished;
+    expect(idle).toBe(true);
+    const commands = vi.mocked(spawnGroup).mock.calls.map(([, args]) => args);
+    expect(commands.some(args => args.includes(SDK_BIN(root)))).toBe(true);
+    expect(commands.find(args => args.includes('-e'))?.at(-1)).toBe(join(root, '@servicenow/sdk-api'));
+  });
+
   it.each(['buildFails', 'packFails'] as const)('invalidates the old artifact and leaves a failed build after %s', async failure => {
     const { app, artifact } = setup({ [failure]: true });
     const result = await runBuild(app);

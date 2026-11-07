@@ -8,6 +8,7 @@ import { ToolServers } from './ToolServers.tsx';
 import { Routines } from './Routines.tsx';
 import { SkillsCard } from './Skills.tsx';
 import { PlacementRulesCard } from './PlacementRules.tsx';
+import { SdkUpdate } from './SdkUpdate.tsx';
 import { DocsDownload } from './DocsDownload.tsx';
 
 const WAKING_NOTE = 'Your PDI is waking up (can take a few minutes). Press Test again once it\'s awake.';
@@ -536,6 +537,7 @@ function PipSection({ settings, save, say }: { settings: Settings; save: (p: Par
         </Field>
       </Card>
       <Card title="ServiceNow docs"><DocsDownload /></Card>
+      <Card title="ServiceNow SDK"><SdkUpdate /></Card>
       <BudgetCard settings={settings} save={save} />
       <ConventionsCard say={say} />
       <LessonsCard say={say} />
