@@ -83,70 +83,23 @@ Wayfinder uses needs them. `npm run smoke` checks health, version, the live upda
 instance is connected) and speed budgets. It exits non-zero on any failure. Every release adds an entry to
 `changelog.json`, which users see under ⓘ.
 
-### Automatic updates (optional)
-`ops/auto-deploy.sh` updates the app whenever `origin/main` moves. It never builds in the folder the app runs from:
-each commit is built in its own folder under `~/.local/share/wayfinder-builds/` (`WAYFINDER_BUILDS_DIR`), a git
-worktree of this checkout with its own `node_modules` (copied from the running build when `package-lock.json` didn't
-change). Only then does it point the `current` link there, restart and smoke-test. If the restart, the server coming
-up or the smoke test fails, it points `current` back at the build that ran before and restarts that. A failed install
-or build changes nothing that runs. The service runs from `current` through a drop-in the first run writes
-(`~/.config/systemd/user/wayfinder.service.d/50-wayfinder-builds.conf`, `WorkingDirectory=…/current`); the unit file
-itself is left as it is. The running build and the one before it are kept; older builds it made are removed (nothing
-else in that folder is, and a builds folder that is `/`, your home, the checkout or a folder holding it is refused).
-Nothing in the checkout is ever discarded: once the new build runs, the checkout fast-forwards to it so the script stays
-current, but only if it has no local changes. What runs is told by `current`, not by where the checkout is. Run it from
-a systemd user timer:
-```ini
-# ~/.config/systemd/user/wayfinder-update.service
-[Service]
-Type=oneshot
-WorkingDirectory=%h/wayfinder
-Environment=WAYFINDER_SERVICE=wayfinder
-ExecStart=/usr/bin/env bash ops/auto-deploy.sh
+### What an update does while Pip is working
+`wayfinder update` (and its optional daily timer from `wayfinder service install --updates`) restarts the app. So that a
+restart doesn't cut off Pip:
 
-# ~/.config/systemd/user/wayfinder-update.timer
-[Timer]
-OnBootSec=2min
-OnUnitActiveSec=2min
-[Install]
-WantedBy=timers.target
-```
-```bash
-systemctl --user daemon-reload && systemctl --user enable --now wayfinder-update.timer
-```
-Use a read-only deploy key for the checkout. Each run logs to `~/wayfinder-data/deploy.log`; a failed update shows
-in the app's banner until the next good one.
-
-- **Running answers:** a restart ends whatever Pip is in the middle of, so after the build an update waits for running
-  answers to finish (it asks the app, `GET /api/busy`). After `WAYFINDER_DEPLOY_WAIT` seconds (default 1800) it goes
-  ahead anyway. `wayfinder update` waits the same way (`WAYFINDER_UPDATE_WAIT`). An answer a restart does cut off keeps
-  what it did and ends with a note and **Continue**; if the app couldn't save it (killed, crashed), the note appears at
-  the next start.
+- **Running answers:** the update first waits for running answers to finish (it asks the app, `GET /api/busy`). After
+  `WAYFINDER_UPDATE_WAIT` seconds (default 1800) it goes ahead anyway. An answer a restart does cut off keeps what it did and ends with
+  a note and **Continue**; if the app couldn't save it (killed, crashed), the note appears at the next start.
 - **The restart window:** once no answers are running, the update writes `~/wayfinder-data/updating.json` and checks
   once more (an answer that started in between is waited for too). While that file is there, the app doesn't start new
   answers: a message sent in those seconds shows "Wayfinder is updating, starting in a moment" and the page sends it
   again as soon as the new server answers. The new server removes the file when it starts; it also expires after two
-  minutes. A file the app can't read holds answers until it's removed (the update removes it when it ends, and a restart does too). If Claude can't be started at all (its files missing or busy), the answer says so in plain words, with
-  **Continue**.
-- **Going back by hand:** `ls -l ~/.local/share/wayfinder-builds/` shows the builds and where `current` points.
-  `ln -sfn ~/.local/share/wayfinder-builds/<other> ~/.local/share/wayfinder-builds/current && systemctl --user restart wayfinder`
-  switches to the other one. To run from the checkout again, remove the drop-in, `systemctl --user daemon-reload`, and
-  restart.
-- **What failed:** the log names the failing step (`checkout`, `install`, `build`, `switch`, `restart`, `ready`, `smoke`) and
-  shows the last lines of its output. A rollback is logged the same way.
-- **Notifications (optional, off by default):** set `WAYFINDER_NOTIFY` to any command that takes a title and a text as
-  its two arguments. It runs when an update or its rollback fails, at most once per commit; successful updates send
-  nothing. Left unset, nothing is sent.
-- **WSL:** WSLg can mount a fresh `/run/user/<uid>` over the systemd user manager's sockets, and `systemctl --user` then
-  fails with "Failed to connect to bus". The script checks for this before touching anything: it logs the cause,
-  keeps the running version and shows "not installed … still running <version>" in the banner. Fix it with
-  `sudo systemctl restart user@$(id -u)`; the next timer run installs the update. If the bus disappears in the middle
-  of an update, the old server never stopped, so the result is "not restarted, still running <version>", not "update and
-  rollback both failed".
+  minutes. A file the app can't read holds answers until it's removed (the update removes it when it ends, and a
+  restart does too). If Claude can't be started at all (its files missing or busy), the answer says so in plain words,
+  with **Continue**.
 
 ## Publishing a release (maintainers)
 Releases are built in the public repo by `.github/workflows/release.yml`; it doesn't publish from a private copy.
-The public project is `https://github.com/CapitalX/wayfinder-app`; replace that placeholder with its final owner/repository.
 CI and releases use GitHub's `ubuntu-latest` Linux runner only, including fork PRs.
 Hosted Linux includes Chrome on PATH; CI falls back to installing the headless shell if needed. UI failures block CI.
 

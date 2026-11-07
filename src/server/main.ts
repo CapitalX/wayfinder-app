@@ -689,7 +689,7 @@ app.get('/api/status', (c) => {
   return c.json(st ? { ...st, kind: inst?.kind ?? 'pdi', name: inst?.name, auth: inst?.auth, user: access?.user, can: can(access), deploy } : st);
 });
 app.post('/api/status/check', async (c) => c.json(await checkNow()));
-// How many answers are running, so an update can wait for them before it restarts the app (ops/auto-deploy.sh).
+// How many answers are running, so an update can wait for them before it restarts the app (`wayfinder update`).
 app.get('/api/busy', (c) => c.json({ answering: answering() }));
 app.get('/api/settings', (c) => c.json(settings.get()));
 app.get('/api/tool-servers', (c) => c.json(toolServers.publicList()));

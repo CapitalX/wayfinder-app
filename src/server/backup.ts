@@ -30,7 +30,7 @@ const hostDir = (inst: Instance) => join(BACKUP_DIR, new URL(inst.url).hostname)
 const stateFile = (inst: Instance) => join(hostDir(inst), 'last-backup.json');
 
 // The weekly backup is due when this instance has no backup for this week yet. Kept on disk, so a restart (and
-// auto-deploy restarts often) doesn't start another one.
+// updates restart the app) doesn't start another one.
 export function backupDue(inst: Instance, week = backupWeek()): boolean {
   try { return JSON.parse(readFileSync(stateFile(inst), 'utf8')).week !== week; } catch { return true; }
 }
