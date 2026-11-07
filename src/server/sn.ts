@@ -42,7 +42,7 @@ function looksHibernating(status: number, contentType: string, body: string) {
 }
 
 // A bearer token for the instance. Client credentials: the integration user's token. Sign in as me: the user's token,
-// renewed with the stored refresh token. Username + password has no token (see authHeader and the env helpers).
+// renewed with the stored refresh token. Username + password has no token (see authHeader).
 export async function getToken(inst: Instance, force = false): Promise<string> {
   assertSecure(inst);
   if (inst.auth === 'basic') throw new InstanceError('This instance signs in with a username and password, not a token.', 'auth');
@@ -119,13 +119,6 @@ export async function authHeader(inst: Instance, force = false): Promise<string>
     return `Basic ${Buffer.from(`${inst.auth_user}:${pw}`).toString('base64')}`;
   }
   return `Bearer ${await getToken(inst, force)}`;
-}
-
-// Environment for the ServiceNow SDK CLI (installs), per sign-in method. Runs inside the build sandbox.
-export async function sdkAuthEnv(inst: Instance): Promise<Record<string, string>> {
-  assertSecure(inst);
-  if (inst.auth === 'basic') return { SN_SDK_INSTANCE_URL: inst.url, SN_SDK_NODE_ENV: 'SN_SDK_CI_INSTALL', SN_SDK_AUTH_TYPE: 'basic', SN_SDK_USER: inst.auth_user ?? '', SN_SDK_USER_PWD: secrets.password(inst.id) ?? '' };
-  return { SN_SDK_INSTANCE_URL: inst.url, SN_SDK_SESSION_BEARER_TOKEN: await getToken(inst, true) };
 }
 
 export async function sn(inst: Instance, path: string, init: { method?: string; body?: unknown } = {}): Promise<any> {
