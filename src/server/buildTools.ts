@@ -198,7 +198,7 @@ export async function buildState(app: App): Promise<{ commit: string | null; cle
 }
 
 // Every app folder sits under APPS_DIR, so one node_modules link there lets each app resolve the SDK. It points at the
-// running build's node_modules: an auto-deploy runs each version from its own folder and later removes old ones, so a
+// running build's node_modules: a deployment that runs each version from its own folder may later remove old ones, so a
 // link to another folder is moved here.
 export function ensureSdk() {
   if (SANDBOX) {
