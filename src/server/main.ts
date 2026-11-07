@@ -55,6 +55,9 @@ import { deleteRule, hub } from './memoryHub.ts';
 import { loadSkills, readSkillFile, removeUserSkill, saveUserSkill, USER_DIR as SKILLS_DIR } from './skills.ts';
 import { applyPdiSetup, INTEGRATION_USER, planPdiSetup, SetupError } from './pdiSetup.ts';
 import { scriptRunnerSettings } from './scriptRunnerSettings.ts';
+import { sdkSettings } from './sdkSettings.ts';
+import { restoreSdkHealth, startSdkAutoUpdate } from './sdkUpdates.ts';
+import { reconcileSdk } from './sdkRoot.ts';
 
 const app = new Hono();
 const COOKIE = 'snw_session';
@@ -97,6 +100,8 @@ app.post('/api/login', async (c) => {
   setCookie(c, COOKIE, token, { httpOnly: true, sameSite: 'Strict', secure, path: '/', maxAge: 60 * 60 * 24 * 90 });
   return c.json({ ok: true });
 });
+
+app.route('/api/sdk', sdkSettings);
 
 app.get('/api/session', (c) => c.json({ ok: true, modes: MODES }));
 
@@ -981,6 +986,8 @@ app.get('*', (c: Context) => {
   return c.html(readFileSync(index, 'utf8'));
 });
 
+reconcileSdk();
+restoreSdkHealth();
 failOrphanedInstalls();
 mergeDuplicates();
 noteCutOff();
@@ -990,6 +997,7 @@ try { secrets.appToken(); } catch (e) { console.error((e as Error).message); pro
 startMonitor();
 startJobPoller();
 startRoutines();
+startSdkAutoUpdate(() => announce('sdk'));
 // The docs follow their upstream daily, keeping the newest release and the selected one: the setting, else the
 // connected instance's (facts.ts).
 startDocsAutoUpdate(async () => { const want = settings.get().docsRelease; return want !== 'auto' ? want : (await activeFacts())?.release ?? null; }, (d) => announce('docs', d));

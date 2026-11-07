@@ -4,14 +4,15 @@ import { spawnSync } from 'node:child_process';
 import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { SDK_BIN, sdkRoot } from '../src/server/sdkRoot.ts';
 import { parseBuild } from '../src/server/fluent.ts';
 import { readSheet, sameMinor, scaffold, sdkVersion, sheetFiles, sheetVersion } from '../src/server/fluentCheck.ts';
 
 const sheet = readSheet();
 const files = sheetFiles(sheet);
 const installed = sdkVersion();
-const dir = scaffold(join(tmpdir(), 'wayfinder'), join(process.cwd(), 'node_modules'), files);
-const res = spawnSync(join(process.cwd(), 'node_modules', '.bin', 'now-sdk'), ['build'], { cwd: dir, encoding: 'utf8' });
+const dir = scaffold(join(tmpdir(), 'wayfinder'), sdkRoot().path, files);
+const res = spawnSync(SDK_BIN(), ['build'], { cwd: dir, encoding: 'utf8' });
 const out = `${res.stdout}${res.stderr}`;
 const { errors } = parseBuild(out);
 const ok = res.status === 0 && /Build completed successfully/i.test(out);

@@ -18,7 +18,7 @@ function usePhone() {
   return phone;
 }
 
-function Popover({ label, title, children, className = '' }: { label: ReactNode; title: string; children: (close: () => void) => ReactNode; className?: string }) {
+export function Popover({ label, title, children, className = '' }: { label: ReactNode; title: string; children: (close: () => void) => ReactNode; className?: string }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);

@@ -44,13 +44,38 @@ Wayfinder is built on a few things other people release. Each is pinned, watched
 
 | Service | Used for | Pinned in | New release noticed | Updated by |
 |---|---|---|---|---|
-| ServiceNow SDK (`@servicenow/sdk`, `@servicenow/sdk-api`: Fluent) | Build mode builds, installs and reviews apps; the Fluent cheat sheet | `package.json`, `package-lock.json` | Maintainer checks | Maintainers install the new release, compile the cheat sheet (`npm run check:fluent`) and open a dependency PR; the next version tag releases it; `wayfinder update` (the daily timer from `service install --updates`, or `brew upgrade`) installs the release. After the restart the app compiles the cheat sheet once on the new SDK (Settings → Pip → Fluent cheat sheet). |
+| ServiceNow SDK (`@servicenow/sdk`, `@servicenow/sdk-api`: Fluent) | Build mode builds, installs and reviews apps; the Fluent cheat sheet | Bundled in `package-lock.json`; in-app updates in `<data>/sdk` | The app checks npm daily, with a seven-day cooldown and the same major only | An admin accepts the in-app offer; Wayfinder downloads beside the current SDK, compiles the cheat sheet, then switches only on pass (or explicit Use anyway). Settings → Pip offers Check now and Go back. New majors come with a Wayfinder release. |
 | ServiceNow docs (github.com/ServiceNow/ServiceNowDocs, one branch per release family) | The docs Pip cites | `~/wayfinder-data/docs` | The app, daily (`git ls-remote`, two minutes after a start and every 24 h) | The app itself: a release whose branch moved is fetched and re-indexed; the newest release is downloaded when ServiceNow publishes it (and the selected one, Settings → Pip → docs release, else the connected instance's, when it's another); the rest is removed, downloads first so a failed download never leaves fewer docs. Only once docs were set up. Settings → Pip → ServiceNow docs shows the last check; `wayfinder docs update` updates by hand. |
 | Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) | Pip's brain | `package.json`, `package-lock.json` | Maintainer checks | Bump PR (tests run on the new release) → release → `wayfinder update`. |
 | MCP SDK (`@modelcontextprotocol/sdk`) | Discovering your tool servers | `package.json`, `package-lock.json` | Maintainer checks | Bump PR → release → `wayfinder update`. |
 | Wayfinder itself | | `~/.local/share/wayfinder/current` | `wayfinder version`, `wayfinder update --check` | `wayfinder update`, the daily timer, or `brew upgrade wayfinder`. |
 | Node, git, bubblewrap | Running, Build mode, the build sandbox | Your package manager | `wayfinder doctor` | You, with your package manager. |
 | A docs server (`SNDOCS_URL`) and your own tool servers | Optional | Yours | | Yours. |
+
+## ServiceNow SDK updates inside the app
+
+Wayfinder checks npm metadata daily and when an admin clicks **Check now** in Settings → Pip → ServiceNow SDK.
+It offers only a newer stable SDK in the bundled SDK's major version, published at least seven days ago. Offline
+checks show no offer. A new major waits for a Wayfinder release. Only a connected account whose access profile
+confirms instance admin can see the update pill or use the buttons; other accounts can read the version and status.
+
+Click **New ServiceNow SDK <version>**, then **Update** to install exact `@servicenow/sdk` and `@servicenow/sdk-api`
+versions beside the current SDK. Installs use the build sandbox with network access, no credentials, no install
+scripts, npm's integrity checks and the bundled dependency overrides. The package's size is shown when npm provides
+it; dependencies download too. The macOS and Docker sandbox limits in SECURITY.md still apply.
+
+Wayfinder builds the Fluent cheat sheet's examples with the candidate SDK using the same scratch check as startup.
+Passing switches Build mode after running SDK commands finish. Failure lists the examples and keeps the current SDK:
+**Keep current** discards the candidate; **Use anyway** switches and adds the existing warning to Pip's Build prompt.
+Settings → Pip shows the active version, whether it is bundled or updated in app, and the cheat sheet's result.
+**Go back to <previous>** restores the previous SDK and its recorded result without another download.
+
+SDKs live in `<data>/sdk/<version>/node_modules`; `<data>/sdk/active.json` records the active and previous choices.
+`check-<version>.json` records each result against the cheat sheet's content hash. Only the active and previous
+installed SDKs are retained after switching (a candidate stays temporarily while you decide). Wayfinder's own
+`node_modules` is untouched. If a Wayfinder update bundles an equal or newer SDK, the bundled SDK takes over and
+the installed SDKs are removed. A missing or incomplete selected SDK falls back to bundled; `wayfinder doctor`
+reports the fallback even when Wayfinder is stopped. Download again in Settings → Pip to repair it.
 
 ## Run it as a service from a git checkout (Linux, systemd user unit)
 ```ini
